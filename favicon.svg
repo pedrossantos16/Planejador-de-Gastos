@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Gradiente azul com brilho da imagem -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0066ff"/>
+      <stop offset="50%" stop-color="#004cd6"/>
+      <stop offset="100%" stop-color="#002199"/>
+    </linearGradient>
+
+    <!-- Brilho diagonal superior direito -->
+    <linearGradient id="shineGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="40%" stop-color="#ffffff" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Fundo azul com cantos arredondados (Squircle) -->
+  <rect width="512" height="512" rx="110" fill="url(#bgGrad)"/>
+
+  <!-- Camada de brilho refletivo -->
+  <path d="M 0,0 L 512,0 L 512,280 L 0,100 Z" fill="url(#shineGrad)"/>
+
+  <!-- Moeda com Símbolo de Cifrão ($) -->
+  <g transform="translate(340, 180)">
+    <!-- Círculo externo da moeda -->
+    <circle cx="0" cy="0" r="85" fill="none" stroke="#ffffff" stroke-width="26"/>
+
+    <!-- Texto/Símbolo do Cifrão $ -->
+    <text x="0" y="28" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="95" font-weight="900" fill="#ffffff" text-anchor="middle">$</text>
+  </g>
+
+  <!-- Mão com palma aberta suportando a moeda -->
+  <g transform="translate(60, 260)" fill="#ffffff">
+    <!-- Pulso e Manga -->
+    <rect x="10" y="40" width="70" height="90" rx="18"/>
+    <circle cx="45" cy="105" r="10" fill="#003db3"/>
+
+    <!-- Palma e Dedos estendidos esteticamente -->
+    <path d="M 95,45 C 95,30 115,30 115,45 L 115,85 C 115,95 125,100 135,100 L 250,100 C 285,100 310,80 345,60 C 358,52 375,65 365,80 C 340,115 300,140 240,145 L 135,145 C 100,145 95,120 95,85 Z"/>
+  </g>
+</svg>
