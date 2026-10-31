@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meu Apê Planejado - Planejamento de Mobília, Orçamento e Mudança</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <!-- SheetJS para exportação de planilhas Excel nativas (.xlsx) -->
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+
+  <!-- CABEÇALHO PRINCIPAL -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand-area">
+        <span class="app-icon">🏠</span>
+        <h1 class="app-title" contenteditable="true" id="appTitleText" title="Clique para editar o nome do projeto">Meu Apê Planejado</h1>
+        <span class="edit-badge" title="Nome editável">✏️</span>
+      </div>
+
+      <div class="header-actions">
+        <select id="demoSelector" class="demo-select" title="Carregar projeto demonstrativo">
+          <option value="">-- Carregar Exemplo --</option>
+          <option value="viable">Exemplo 1: Viável & Equilibrado</option>
+          <option value="inviable">Exemplo 2: Inviável (Déficit em Sinal)</option>
+          <option value="incomplete">Exemplo 3: Preliminar (Dados Faltantes)</option>
+        </select>
+
+        <button id="btnOpenJson" class="btn btn-secondary">📂 Abrir Salvo</button>
+        <button id="btnSaveJson" class="btn btn-secondary">💾 Backup JSON</button>
+        <button id="btnResetProject" class="btn btn-danger-outline" title="Iniciar um novo planejamento limpo">✨ Novo</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- BARRA DE PROGRESSO DO WIZARD (5 ETAPAS) -->
+  <nav class="wizard-nav" id="wizardNav" aria-label="Etapas do planejamento">
+    <div class="wizard-steps-container">
+      <button class="wizard-step active" data-step="1">
+        <span class="step-num">1</span>
+        <span class="step-label">Meu Apê e Prazo</span>
+      </button>
+      <button class="wizard-step" data-step="2">
+        <span class="step-num">2</span>
+        <span class="step-label">Meu Orçamento</span>
+      </button>
+      <button class="wizard-step" data-step="3">
+        <span class="step-num">3</span>
+        <span class="step-label">Ambientes e Itens</span>
+      </button>
+      <button class="wizard-step" data-step="4">
+        <span class="step-num">4</span>
+        <span class="step-label">Revisar Premissas</span>
+      </button>
+      <button class="wizard-step" data-step="5">
+        <span class="step-num">5</span>
+        <span class="step-label">Meu Plano e Arquivos</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- CONTEÚDO PRINCIPAL (SPA) -->
+  <main class="main-content container">
+
+    <!-- TELA DE BOAS-VINDAS / LANDING INICIAL (Visível se for novo projeto) -->
+    <section id="welcomeBanner" class="welcome-card card">
+      <div class="welcome-header">
+        <h2>Planeje a mobília e mudança do seu apê sem surpresas financeiras</h2>
+        <p>Saiba quanto vai custar, quando comprar cada item e se o seu orçamento mensal é suficiente para chegar no dia da mudança com o essencial pronto.</p>
+      </div>
+      <div class="welcome-actions">
+        <button id="btnStartWizard" class="btn btn-primary btn-lg">🚀 Começar Meu Planejamento</button>
+        <button id="btnLoadDemoViable" class="btn btn-secondary btn-lg">💡 Explorar Exemplo Prático</button>
+        <label for="jsonFileInput" class="btn btn-outline btn-lg" style="cursor:pointer;">
+          📁 Abrir Planejamento Salvo
+          <input type="file" id="jsonFileInput" accept=".json" style="display:none;">
+        </label>
+      </div>
+    </section>
+
+    <!-- ETAPA 1: MEU APARTAMENTO E PRAZO -->
+    <section id="step1" class="wizard-section active">
+      <div class="section-header">
+        <h2>Etapa 1: Dados do Apartamento e Prazos</h2>
+        <p>Informe as características do imóvel e a data prevista das chaves para calcularmos o horizonte financeiro.</p>
+      </div>
+
+      <form id="formStep1" class="form-grid">
+        <div class="card form-card">
+          <h3>Localização e Características</h3>
+          <div class="form-group">
+            <label for="cityState">Cidade / Estado</label>
+            <input type="text" id="cityState" placeholder="Ex: São Paulo / SP" class="form-control">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="approxAreaM2">Área Aprox. (m²)</label>
+              <input type="number" id="approxAreaM2" min="15" max="500" value="55" class="form-control">
+            </div>
+            <div class="form-group">
+              <label for="residentsCount">Nº de Moradores</label>
+              <input type="number" id="residentsCount" min="1" max="10" value="2" class="form-control">
+            </div>
+          </div>
+          <div class="form-group checkbox-group">
+            <label><input type="checkbox" id="isHomeOffice" checked> Alguém trabalha em home office</label>
+            <label><input type="checkbox" id="hasChildren"> Crianças na residência</label>
+            <label><input type="checkbox" id="hasPets"> Animais de estimação (Pets)</label>
+            <label><input type="checkbox" id="accessibilityNeeds"> Necessidades de acessibilidade</label>
+          </div>
+        </div>
+
+        <div class="card form-card">
+          <h3>Datas Críticas</h3>
+          <div class="form-group">
+            <label for="keysDate">Data Prevista das Chaves <span class="required">*</span></label>
+            <input type="date" id="keysDate" class="form-control" required>
+            <small class="help-text">Quando a construtora entregará o imóvel.</small>
+          </div>
+          <div class="form-group">
+            <label for="moveDate">Data Desejada de Mudança <span class="required">*</span></label>
+            <input type="date" id="moveDate" class="form-control" required>
+            <small class="help-text">Quando você pretende morar efetivamente no apê.</small>
+          </div>
+
+          <h3>Itens que a Construtora já Entregará</h3>
+          <div class="form-group checkbox-group">
+            <label><input type="checkbox" id="delFlooring"> Pisos nas áreas secas</label>
+            <label><input type="checkbox" id="delWallTiles" checked> Revestimento em banheiros e cozinha</label>
+            <label><input type="checkbox" id="delCountertops" checked> Bancadas de granito/mármore</label>
+            <label><input type="checkbox" id="delLighting"> Iluminação básica pronta</label>
+            <label><input type="checkbox" id="delSanitary" checked> Louças e metais instalados</label>
+          </div>
+        </div>
+      </form>
+
+      <div class="step-footer">
+        <div></div>
+        <button class="btn btn-primary btn-next" data-next="2">Avançar para Orçamento ➔</button>
+      </div>
+    </section>
+
+    <!-- ETAPA 2: MEU ORÇAMENTO -->
+    <section id="step2" class="wizard-section">
+      <div class="section-header">
+        <h2>Etapa 2: Planejamento Financeiro e Capacidade</h2>
+        <p>Defina como você deseja calcular a sua capacidade mensal de guardar dinheiro para o apê.</p>
+      </div>
+
+      <div class="card budget-mode-card">
+        <div class="mode-selector">
+          <label class="mode-option active">
+            <input type="radio" name="budgetMode" value="simplified" checked>
+            <span class="mode-content" style="display:block;">
+              <strong>Modo Simplificado</strong>
+              <span>"Já sei quanto posso reservar por mês e qual o meu saldo atual."</span>
+            </span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="budgetMode" value="detailed">
+            <span class="mode-content" style="display:block;">
+              <strong>Modo Detalhado</strong>
+              <span>"Ajude-me a calcular quanto cabe no meu orçamento familiar."</span>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <!-- FORMULÁRIO MODO SIMPLIFICADO -->
+      <div id="simplifiedBudgetForm" class="form-grid">
+        <div class="card form-card">
+          <h3>Saldo e Aportes</h3>
+          <div class="form-group">
+            <label for="simpInitialBalance">Saldo Disponível Exclusivo para este Projeto (R$)</label>
+            <input type="text" id="simpInitialBalance" placeholder="10.000,00" class="form-control money-input">
+            <small class="help-text">Dinheiro que já está guardado e reservado apenas para o apê.</small>
+          </div>
+          <div class="form-group">
+            <label for="simpMonthlyCap">Teto de Aporte Mensal Pretendido (R$)</label>
+            <input type="text" id="simpMonthlyCap" placeholder="1.500,00" class="form-control money-input">
+            <small class="help-text">Quanto você pretende guardar todos os meses até a mudança.</small>
+          </div>
+        </div>
+      </div>
+
+      <!-- FORMULÁRIO MODO DETALHADO -->
+      <div id="detailedBudgetForm" class="form-grid hidden">
+        <div class="card form-card">
+          <h3>Receitas e Despesas de Vida</h3>
+          <div class="form-group">
+            <label for="detNetIncome">Renda Líquida Familiar Mensal (R$)</label>
+            <input type="text" id="detNetIncome" placeholder="8.000,00" class="form-control money-input">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="detFixedExp">Despesas Fixas de Vida (R$)</label>
+              <input type="text" id="detFixedExp" placeholder="3.000,00" class="form-control money-input">
+            </div>
+            <div class="form-group">
+              <label for="detVarExp">Despesas Variáveis (R$)</label>
+              <input type="text" id="detVarExp" placeholder="1.000,00" class="form-control money-input">
+            </div>
+          </div>
+        </div>
+
+        <div class="card form-card">
+          <h3>Compromissos do Imóvel e Reservas</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="detPropInst">Parcela Atual do Apê (R$)</label>
+              <input type="text" id="detPropInst" placeholder="1.500,00" class="form-control money-input">
+            </div>
+            <div class="form-group">
+              <label for="detOtherDebts">Outras Dívidas/Financiamentos (R$)</label>
+              <input type="text" id="detOtherDebts" placeholder="0,00" class="form-control money-input">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="detEmergRes">Reserva de Emergência Protegida (R$)</label>
+              <input type="text" id="detEmergRes" placeholder="10.000,00" class="form-control money-input">
+              <small class="help-text">Indisponível para compras da mobília.</small>
+            </div>
+            <div class="form-group">
+              <label for="detSafetyMarg">Margem de Segurança Mensal (R$)</label>
+              <input type="text" id="detSafetyMarg" placeholder="500,00" class="form-control money-input">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step-footer">
+        <button class="btn btn-secondary btn-prev" data-prev="1">⬅ Voltar</button>
+        <button class="btn btn-primary btn-next" data-next="3">Avançar para Itens ➔</button>
+      </div>
+    </section>
+
+    <!-- ETAPA 3: AMBIENTES, ITENS E PREFERÊNCIAS -->
+    <section id="step3" class="wizard-section">
+      <div class="section-header-actions">
+        <div>
+          <h2>Etapa 3: Lista de Ambientes e Itens</h2>
+          <p>Cadastre os móveis, eletrodomésticos e serviços. Escolha o escopo e a estratégia para cada um.</p>
+        </div>
+        <button id="btnAddItemModal" class="btn btn-success">+ Adicionar Item</button>
+      </div>
+
+      <!-- ABAS DE AMBIENTES -->
+      <div class="room-tabs-bar" id="roomTabsBar">
+        <!-- Gerado dinamicamente via JS -->
+      </div>
+
+      <!-- PAINEL DE AMBIENTE ATIVO E LISTA DE ITENS -->
+      <div class="card items-container-card">
+        <div class="items-table-wrapper">
+          <table class="items-table" id="itemsTable">
+            <thead>
+              <tr>
+                <th>Item / Especificação</th>
+                <th>Estratégia</th>
+                <th>Prioridade</th>
+                <th>Escopo</th>
+                <th>Situação</th>
+                <th>Custo Total (R$)</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="itemsTableBody">
+              <!-- Gerado via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="step-footer">
+        <button class="btn btn-secondary btn-prev" data-prev="2">⬅ Voltar</button>
+        <button class="btn btn-primary btn-next" data-next="4">Avançar para Revisão ➔</button>
+      </div>
+    </section>
+
+    <!-- ETAPA 4: REVISAR E PREMISSAS -->
+    <section id="step4" class="wizard-section">
+      <div class="section-header">
+        <h2>Etapa 4: Revisar Premissas e Qualidade dos Dados</h2>
+        <p>Verifique o grau de certeza das informações antes de gerar o plano consolidado.</p>
+      </div>
+
+      <div class="form-grid">
+        <div class="card form-card">
+          <h3>Premissas Financeiras</h3>
+          <div class="form-group">
+            <label for="annualInflation">Hipótese de Inflação Anual dos Itens (%)</label>
+            <input type="number" id="annualInflation" step="0.5" min="0" max="30" value="0.0" class="form-control">
+            <small class="help-text">Reajuste projetado para itens ainda não contratados ($g$).</small>
+          </div>
+          <div class="form-group checkbox-group">
+            <label><input type="checkbox" id="applyInflationUncontracted" checked> Aplicar inflação apenas a itens não contratados</label>
+          </div>
+          <div class="form-group">
+            <label for="contingencyPercent">Reserva para Imprevistos na Obra/Instalação (%)</label>
+            <input type="number" id="contingencyPercent" step="1" min="0" max="25" value="5" class="form-control">
+          </div>
+        </div>
+
+        <div class="card form-card">
+          <h3>Resumo da Qualidade dos Dados</h3>
+          <div id="dataQualitySummary" class="quality-box">
+            <!-- Gerado via JS -->
+          </div>
+        </div>
+      </div>
+
+      <div class="step-footer">
+        <button class="btn btn-secondary btn-prev" data-prev="3">⬅ Voltar</button>
+        <button class="btn btn-primary btn-next btn-highlight" data-next="5">📊 Gerar Meu Plano de Mudança</button>
+      </div>
+    </section>
+
+    <!-- ETAPA 5: MEU PLANO, COMPARAÇÃO E ARQUIVOS -->
+    <section id="step5" class="wizard-section">
+      <!-- PAINEL PRINCIPAL DE RESULTADOS -->
+      <div id="resultsBanner" class="results-banner card">
+        <!-- Renderizado dinamicamente pelo DashboardUI -->
+      </div>
+
+      <!-- BARRA DE EXPORTAÇÃO REAL DE ARQUIVOS -->
+      <div class="export-bar card">
+        <div class="export-title">
+          <span>📄 Exportação Real de Arquivos</span>
+          <small>Gere documentos válidos em PDF, Excel real (.xlsx com fórmulas) e CSV para usar com a família e fornecedores.</small>
+        </div>
+        <div class="export-buttons">
+          <button id="btnExportPdfExec" class="btn btn-export btn-pdf">📄 PDF Executivo (1-2 pág)</button>
+          <button id="btnExportPdfDet" class="btn btn-export btn-pdf">📑 PDF Detalhado</button>
+          <button id="btnExportExcel" class="btn btn-export btn-excel">📊 Excel Real (.xlsx)</button>
+          <button id="btnExportCsvItems" class="btn btn-export btn-csv">📝 CSV Itens</button>
+          <button id="btnExportCsvLedger" class="btn btn-export btn-csv">📉 CSV Fluxo Mensal</button>
+          <button id="btnExportJson" class="btn btn-export btn-json">💾 Salvar JSON</button>
+        </div>
+      </div>
+
+      <!-- COMPARATIVO DE CENÁRIOS -->
+      <div class="section-title">
+        <h3>Comparação de Estratégias (Cenários)</h3>
+      </div>
+      <div class="scenarios-grid" id="scenariosGrid">
+        <!-- Renderizado via DashboardUI -->
+      </div>
+
+      <!-- RECOMENDAÇÕES PRIORITÁRIAS E TRADE-OFFS -->
+      <div class="section-title">
+        <h3>Propostas Prioritárias de Ajuste</h3>
+      </div>
+      <div class="recommendations-container" id="recommendationsContainer">
+        <!-- Renderizado via DashboardUI -->
+      </div>
+
+      <!-- CRONOGRAMA E FLUXO MENSAIS -->
+      <div class="section-title">
+        <h3>Evolução Mensal do Fundo e Compromissos (36 Meses)</h3>
+      </div>
+      <div class="card ledger-card">
+        <div class="ledger-table-wrapper">
+          <table class="ledger-table" id="ledgerTable">
+            <thead>
+              <tr>
+                <th>Mês / Marco</th>
+                <th>Saldo Inicial</th>
+                <th>Aporte Planejado</th>
+                <th>Entradas Extras</th>
+                <th>Pagamentos</th>
+                <th>Saldo Fundo</th>
+                <th>Déficit Familiar</th>
+              </tr>
+            </thead>
+            <tbody id="ledgerTableBody">
+              <!-- Renderizado via DashboardUI -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TESTE DE IMPREVISTOS (ANÁLISE DE SENSIBILIDADE) -->
+      <div class="section-title">
+        <h3>Teste de Imprevistos & Riscos (Sensibilidade)</h3>
+      </div>
+      <div class="card risk-card" id="riskCardContainer">
+        <!-- Renderizado via SensitivityUI -->
+      </div>
+
+      <div class="step-footer">
+        <button class="btn btn-secondary btn-prev" data-prev="4">⬅ Voltar e Ajustar Dados</button>
+        <div></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- MODAL DE ADIÇÃO/EDIÇÃO DE ITEM -->
+  <div id="itemModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="itemModalTitle">Cadastrar Item</h3>
+        <button id="btnCloseItemModal" class="close-btn">&times;</button>
+      </div>
+      <form id="itemForm" class="modal-body">
+        <input type="hidden" id="modalItemId">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="modalItemRoom">Ambiente <span class="required">*</span></label>
+            <select id="modalItemRoom" class="form-control" required></select>
+          </div>
+          <div class="form-group">
+            <label for="modalItemName">Nome do Item <span class="required">*</span></label>
+            <input type="text" id="modalItemName" placeholder="Ex: Armário da Cozinha" class="form-control" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="modalItemSpec">Especificação / Material</label>
+          <input type="text" id="modalItemSpec" placeholder="Ex: MDF 18mm Naval, cor fendi" class="form-control">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="modalItemPriority">Prioridade</label>
+            <select id="modalItemPriority" class="form-control">
+              <option value="essential">Essencial para Mudar</option>
+              <option value="important">Importante</option>
+              <option value="optional">Opcional</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="modalItemScope">Escopo</label>
+            <select id="modalItemScope" class="form-control">
+              <option value="include">Incluir no Plano</option>
+              <option value="postpone">Adiar Pós-Mudança</option>
+              <option value="exclude">Excluir do Escopo</option>
+              <option value="already_owned">Já Possuo / Usado</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="modalItemStrategy">Estratégia</label>
+            <select id="modalItemStrategy" class="form-control">
+              <option value="custom_woodwork">Marcenaria Sob Medida</option>
+              <option value="factory_planned">Planejados de Fábrica</option>
+              <option value="modular">Móveis Modulados</option>
+              <option value="ready_made">Móveis Prontos</option>
+              <option value="hybrid">Solução Híbrida</option>
+              <option value="reused">Reaproveitamento</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="modalItemBasePrice">Preço Base (R$)</label>
+            <input type="text" id="modalItemBasePrice" placeholder="0,00" class="form-control money-input">
+          </div>
+          <div class="form-group">
+            <label for="modalItemShipping">Frete (R$)</label>
+            <input type="text" id="modalItemShipping" placeholder="0,00" class="form-control money-input">
+          </div>
+          <div class="form-group">
+            <label for="modalItemInstallation">Montagem / Instalação (R$)</label>
+            <input type="text" id="modalItemInstallation" placeholder="0,00" class="form-control money-input">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="modalItemDeliveryMonth">Mês de Entrega Previsto</label>
+            <input type="number" id="modalItemDeliveryMonth" min="0" max="60" value="35" class="form-control">
+          </div>
+          <div class="form-group">
+            <label for="modalItemStatus">Situação</label>
+            <select id="modalItemStatus" class="form-control">
+              <option value="search">Pesquisando</option>
+              <option value="quoted">Orçamento Recebido</option>
+              <option value="contracted">Contratado</option>
+              <option value="bought">Comprado/Pago</option>
+              <option value="installed">Instalado</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="btnCancelModal" class="btn btn-secondary">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Item</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- RODAPÉ E SUÍTE DE TESTES AUTOMATIZADOS -->
+  <footer class="app-footer">
+    <div class="container footer-content">
+      <span>Meu Apê Planejado • Sistema de Planejamento de Mobília e Mudança</span>
+      <button id="btnRunAcceptanceTests" class="btn btn-sm btn-outline">🧪 Executar 15 Testes de Aceitação</button>
+    </div>
+  </footer>
+
+  <!-- MODAL DOS TESTES DE ACEITAÇÃO -->
+  <div id="testsModal" class="modal-overlay hidden">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <h3>Resultado dos Testes de Aceitação Automatizados (1 a 15)</h3>
+        <button id="btnCloseTestsModal" class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body" id="testsResultsBody">
+        <!-- Renderizado via AcceptanceTests.js -->
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTROLADORES DA APLICAÇÃO -->
+  <script type="module" src="js/app.js"></script>
+
+</body>
+</html>

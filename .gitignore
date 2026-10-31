@@ -1,0 +1,13 @@
+# IDE e Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Sistema Operacional
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs
+*.log
