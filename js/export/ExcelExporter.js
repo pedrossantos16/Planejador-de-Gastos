@@ -43,7 +43,7 @@ export class ExcelExporter {
       [''],
       ['DIAGNÓSTICO DE VIABILIDADE'],
       ['Status:', viability.label],
-      ['Campos pendentes:', viability.missingFields.join(', ')],
+      ['Campos pendentes:', (viability.missingFieldLabels || viability.missingFields).join('; ')],
       ['Primeiro Mês com Déficit:', viability.firstDeficitMonth === null ? 'Nenhum' : `Mês ${viability.firstDeficitMonth}`],
       ['Valor do Primeiro Déficit (R$):', viability.firstDeficitAmountCents / 100],
       ['Mês do Pior Déficit:', viability.worstDeficitMonth === null ? 'Nenhum' : `Mês ${viability.worstDeficitMonth}`],

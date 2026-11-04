@@ -13,7 +13,7 @@ import { CsvExporter } from './export/CsvExporter.js';
 import { getDemoViableProject, getDemoInviableProject, getDemoIncompleteProject } from './models/defaultData.js';
 import { createDefaultProject } from './models/types.js';
 import {
-  CONTINGENCY_RULE, CONTINGENCY_RULE_LABELS, RULE_SCHEMA_VERSION
+  CONTINGENCY_RULE, CONTINGENCY_RULE_LABELS, RULE_SCHEMA_VERSION, describeContingencyRule
 } from './models/contingencyRules.js';
 
 class App {
@@ -320,12 +320,17 @@ class App {
   summarizeOutcome(result) {
     const fmt = cents => `R$ ${(cents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
     const c = result.contingency;
-    return [
+    const ambiguity = c.ruleAmbiguity;
+    const lines = [
       `Diagnóstico: ${result.viability.label}`,
       `Déficit de caixa: ${result.firstDeficitMonth === null ? 'nenhum' : `a partir do mês ${result.firstDeficitMonth}`}`,
       `Reserva de ${fmt(c.protectedCents)}: ${c.firstReserveShortfallMonth === null ? 'sem insuficiência identificada após a exigência' : `insuficiente a partir do mês ${c.firstReserveShortfallMonth}`}`,
       `Saldo livre final: ${fmt(result.finalFreeBalanceCents)}`
-    ].join('\n  ');
+    ];
+    if (ambiguity?.material) {
+      lines.push(`Interpretações possíveis da regra anterior: ${ambiguity.alternatives.map(entry => `${entry.rule === 'month_zero' ? 'publicada' : 'intermediária'} → ${entry.firstDeficitMonth === null ? 'sem déficit' : `déficit no mês ${entry.firstDeficitMonth}`}`).join('; ')}`);
+    }
+    return lines.join('\n  ');
   }
 
   migrateContingencyRule() {
@@ -351,7 +356,7 @@ class App {
       alert(`Não foi possível simular a nova regra: ${error.message}`);
       return;
     }
-    const message = `Migrar para a regra com data-alvo (${assumptions.contingencyTargetDate})?\n\nANTES (${CONTINGENCY_RULE_LABELS[this.financialResult.contingency.rule]}):\n  ${this.summarizeOutcome(this.financialResult)}\n\nDEPOIS:\n  ${this.summarizeOutcome(after)}`;
+    const message = `Migrar para a regra com data-alvo (${assumptions.contingencyTargetDate})?\n\nANTES (${describeContingencyRule(this.financialResult.contingency.rule, this.financialResult.contingency.ruleNeedsReview)}):\n  ${this.summarizeOutcome(this.financialResult)}\n\nDEPOIS:\n  ${this.summarizeOutcome(after)}`;
     if (!confirm(message)) return;
     assumptions.contingencyRule = CONTINGENCY_RULE.TARGET;
     assumptions.contingencyRuleConfirmed = true;
@@ -369,7 +374,7 @@ class App {
     if (c.percent === 0) {
       text = 'Sem contingência configurada.';
     } else if (c.mode === 'legacy') {
-      text = `${CONTINGENCY_RULE_LABELS[c.rule]}. Reserva: ${fmt(c.protectedCents)}.${c.ruleNeedsReview ? ' Este projeto foi salvo sem a versão da regra; revise e confirme a migração.' : ''} Informe a data-alvo e adote a regra com data-alvo para planejar a formação progressiva.`;
+      text = `${describeContingencyRule(c.rule, c.ruleNeedsReview)}. Reserva: ${fmt(c.protectedCents)}.${c.ruleNeedsReview ? ' Este projeto foi salvo sem a versão da regra: não foi possível comprovar qual regra valia, e esta é apenas uma interpretação provisória.' : ''} Informe a data-alvo e adote a regra com data-alvo para planejar a formação progressiva.`;
     } else if (c.targetMonth === null) {
       text = 'Informe a data-alvo para avaliar a formação da reserva.';
     } else {

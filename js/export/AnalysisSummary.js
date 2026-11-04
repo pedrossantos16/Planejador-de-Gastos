@@ -1,4 +1,4 @@
-import { CONTINGENCY_RULE_LABELS } from '../models/contingencyRules.js';
+import { describeContingencyRule } from '../models/contingencyRules.js';
 import { SETTLEMENT_STATE_LABELS, settlementState } from '../models/payments.js';
 
 const brl = cents => `R$ ${(cents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
@@ -10,7 +10,11 @@ export function buildAnalysisSummary(project, result) {
   const rows = [];
   const add = (label, text, cents) => rows.push({ label, text, cents });
 
-  add('Regra de contingência', CONTINGENCY_RULE_LABELS[c.rule] + (c.ruleNeedsReview ? ' — origem não confirmada, revisão pendente' : ''));
+  add('Regra de contingência', describeContingencyRule(c.rule, c.ruleNeedsReview) + (c.ruleNeedsReview ? ' — origem não comprovada, revisão pendente' : ''));
+  if (c.ruleAmbiguity?.material) {
+    add('Interpretações possíveis da regra', c.ruleAmbiguity.alternatives.map(entry =>
+      `${entry.rule === 'month_zero' ? 'reserva desde o mês 0' : 'reserva desde o primeiro desembolso'}: ${entry.firstDeficitMonth === null ? 'sem déficit' : `déficit a partir do mês ${entry.firstDeficitMonth}`}`).join('; '));
+  }
   add('Percentual da reserva', `${Math.round(c.percent * 10000) / 100}%`);
   add('Valor da reserva protegida', brl(c.protectedCents), c.protectedCents);
   if (c.mode === 'target') {
@@ -40,7 +44,9 @@ export function buildAnalysisSummary(project, result) {
   if (result.postponedEssentialItems?.length) {
     pending.push(`Itens essenciais adiados: ${result.postponedEssentialItems.map(item => item.name).join(', ')}`);
   }
-  if (c.ruleNeedsReview) pending.push('Confirmar a regra de contingência do projeto');
+  if (c.ruleNeedsReview && !pending.some(label => /regra de contingência/.test(label))) {
+    pending.push('Confirmar a regra de contingência do projeto');
+  }
 
   const settlements = (result.processedItems || [])
     .map(item => ({ name: item.name, state: settlementState(item) }))

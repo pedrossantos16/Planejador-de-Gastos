@@ -576,8 +576,21 @@ test('projeto da versão publicada sem marcador migra para a reserva desde o mê
   assert.equal(result.firstDeficitMonth, 0);
   assert.equal(result.contingency.ruleNeedsReview, true);
   const viability = ScenarioEngine.evaluateViability(result, migrated);
-  assert.equal(viability.status, 'requires_adjustments');
-  assert.ok(viability.reasons.some(reason => /regra de contingência/.test(reason)));
+  // As interpretações possíveis divergem (déficit no mês 0 x sem déficit): a conclusão é provisória.
+  assert.equal(result.contingency.ruleAmbiguity.material, true);
+  assert.equal(viability.status, 'insufficient_data');
+  assert.ok(result.missingFields.includes('contingencyRule'));
+  assert.ok(viability.reasons.some(reason => /Conclusão provisória/.test(reason)));
+  assert.ok(viability.missingFieldLabels.some(label => /regra de contingência/.test(label)));
+});
+
+test('origem da regra não comprovada sem efeito material mantém a conclusão, com aviso de revisão', () => {
+  const raw = mainProjectWithoutRuleMarker();
+  raw.items = [];
+  const migrated = StorageManager.migrateAndValidateSchema(raw);
+  const result = FinancialEngine.calculate(migrated, { referenceDate: '2026-01-15' });
+  assert.equal(result.contingency.ruleAmbiguity.material, false);
+  assert.ok(!result.missingFields.includes('contingencyRule'));
 });
 
 test('marcador de compilação intermediária mantém o primeiro desembolso e a regra explícita não exige revisão', () => {
@@ -748,4 +761,3 @@ test('XLSX e PDF incluem as mesmas informações de contingência da tela e iden
   assert.ok(html.includes(PDF_LIMITATION));
   assert.ok(!html.includes('Sofá <b>'));
 });
-

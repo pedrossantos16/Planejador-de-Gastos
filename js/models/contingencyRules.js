@@ -11,6 +11,16 @@ export const CONTINGENCY_RULE_LABELS = {
   target: 'Regra com data-alvo: reserva formada até a data-alvo e preservada depois dela'
 };
 
+// Enquanto a origem não é comprovada, a regra é apenas uma interpretação provisória.
+const PROVISIONAL_LABELS = {
+  month_zero: 'Interpretação provisória: reserva integral exigida desde o mês 0 (compatível com a versão publicada)',
+  first_disbursement: 'Interpretação provisória: reserva integral exigida desde o primeiro desembolso (compatível com uma versão intermediária)'
+};
+
+export function describeContingencyRule(rule, needsReview) {
+  return needsReview && PROVISIONAL_LABELS[rule] ? PROVISIONAL_LABELS[rule] : CONTINGENCY_RULE_LABELS[rule];
+}
+
 export const RULE_SCHEMA_VERSION = 2;
 
 const VALID_RULES = Object.values(CONTINGENCY_RULE);
