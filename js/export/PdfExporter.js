@@ -1,5 +1,6 @@
 import { STRATEGY_LABELS, PRIORITY_LABELS, STATUS_LABELS } from '../models/types.js';
 import { ScenarioEngine } from '../engine/ScenarioEngine.js';
+import { buildAnalysisSummary, PDF_LIMITATION } from './AnalysisSummary.js';
 
 export class PdfExporter {
   /**
@@ -10,6 +11,7 @@ export class PdfExporter {
    */
   static exportToPdf(project, result, isDetailed = false) {
     const viability = result.viability || ScenarioEngine.evaluateViability(result);
+    const analysis = buildAnalysisSummary(project, { ...result, viability });
     const printWindow = window.open('', '_blank', 'width=900,height=1000');
     if (!printWindow) {
       alert('Por favor, permita pop-ups para gerar a impressão em PDF do relatório.');
@@ -135,6 +137,16 @@ export class PdfExporter {
               `).join('')}
           </tbody>
         </table>
+
+        <h2>Contingência, Diagnóstico e Pendências</h2>
+        <table>
+          <tbody>
+            ${analysis.rows.map(row => `<tr><th style="width:38%">${escapeHtml(row.label)}</th><td>${escapeHtml(row.text)}</td></tr>`).join('')}
+            <tr><th>Pendências que limitam a conclusão</th><td>${analysis.pending.length ? analysis.pending.map(p => `• ${escapeHtml(p)}`).join('<br>') : 'Nenhuma'}</td></tr>
+            ${analysis.settlements.map(s => `<tr><th>Quitação — ${escapeHtml(s.name)}</th><td>${escapeHtml(s.label)}</td></tr>`).join('')}
+          </tbody>
+        </table>
+        <p style="font-size:11px; color:#64748b;">${escapeHtml(PDF_LIMITATION)}</p>
 
         ${isDetailed ? `
           <h2>Cronograma Sintético por Trimestre</h2>

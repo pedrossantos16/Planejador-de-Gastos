@@ -40,11 +40,28 @@ export function applyDeliveryShift(payments, delta) {
 export function needsSettlementConfirmation(item) {
   if (!SETTLED_STATUSES.includes(item.status) || item.scope === SCOPE_OPTIONS.ALREADY_OWNED) return false;
   if (!Number.isSafeInteger(item.basePriceCents) || item.basePriceCents <= 0) return false;
-  const paidTotal = (item.payments || [])
-    .filter(payment => payment.isPaid)
+  // Quitação importada e não confirmada não conta como paga.
+  const confirmedPaidTotal = (item.payments || [])
+    .filter(payment => payment.isPaid && payment.origin !== SETTLEMENT_ORIGIN.IMPORTED_UNCONFIRMED)
     .reduce((sum, payment) => sum + payment.amountCents, 0);
-  return paidTotal < item.basePriceCents;
+  return confirmedPaidTotal < item.basePriceCents;
 }
+
+// 'dated' = pagamento com data conhecida; 'confirmed_unknown_date' = declarado e confirmado;
+// 'unconfirmed' = ainda não confirmado; null = não se aplica.
+export function settlementState(item) {
+  if (!SETTLED_STATUSES.includes(item?.status) || item.scope === SCOPE_OPTIONS.ALREADY_OWNED) return null;
+  if (!Number.isSafeInteger(item.basePriceCents) || item.basePriceCents <= 0) return null;
+  if (needsSettlementConfirmation(item)) return 'unconfirmed';
+  const paid = (item.payments || []).filter(payment => payment.isPaid);
+  return paid.some(payment => payment.dateUnknown) ? 'confirmed_unknown_date' : 'dated';
+}
+
+export const SETTLEMENT_STATE_LABELS = {
+  dated: 'Quitada (com data)',
+  confirmed_unknown_date: 'Quitação declarada e confirmada (data não informada)',
+  unconfirmed: 'Quitação NÃO confirmada'
+};
 
 function accessoryPayment(item) {
   return {
@@ -61,7 +78,11 @@ function accessoryPayment(item) {
 // Registra a quitação declarada sem inventar data: monthIndex 0 é apenas posição técnica.
 export function buildSettledPayments(item, origin = SETTLEMENT_ORIGIN.DECLARED) {
   const payments = item.payments || [];
-  const paid = payments.filter(payment => payment.isPaid).map(payment => ({ ...payment }));
+  const paid = payments.filter(payment => payment.isPaid).map(payment => (
+    payment.origin === SETTLEMENT_ORIGIN.IMPORTED_UNCONFIRMED
+      ? { ...payment, origin: SETTLEMENT_ORIGIN.DECLARED }
+      : { ...payment }
+  ));
   const keptPending = payments.filter(payment => isPending(payment) &&
     payment.linkedToDelivery !== true && payment.source !== PAYMENT_SOURCE.AUTO_ACCESSORY)
     .map(payment => ({ ...payment }));

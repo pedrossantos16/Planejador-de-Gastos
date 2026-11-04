@@ -1,5 +1,7 @@
 import { STRATEGY_LABELS, PRIORITY_LABELS, SCOPE_LABELS, STATUS_LABELS } from '../models/types.js';
 import { ScenarioEngine } from '../engine/ScenarioEngine.js';
+import { buildAnalysisSummary, XLSX_LIMITATION } from './AnalysisSummary.js';
+import { settlementState, SETTLEMENT_STATE_LABELS } from '../models/payments.js';
 
 export class ExcelExporter {
   /**
@@ -7,6 +9,7 @@ export class ExcelExporter {
    */
   static exportToExcel(project, result) {
     const viability = result.viability || ScenarioEngine.evaluateViability(result);
+    const analysis = buildAnalysisSummary(project, { ...result, viability });
     const activeProfile = project.budgetProfile.mode === 'detailed'
       ? project.budgetProfile.detailed
       : project.budgetProfile.simplified;
@@ -44,7 +47,13 @@ export class ExcelExporter {
       ['Primeiro Mês com Déficit:', viability.firstDeficitMonth === null ? 'Nenhum' : `Mês ${viability.firstDeficitMonth}`],
       ['Valor do Primeiro Déficit (R$):', viability.firstDeficitAmountCents / 100],
       ['Mês do Pior Déficit:', viability.worstDeficitMonth === null ? 'Nenhum' : `Mês ${viability.worstDeficitMonth}`],
-      ['Déficit Máximo Registrado (R$):', viability.maxDeficitCents / 100]
+      ['Déficit Máximo Registrado (R$):', viability.maxDeficitCents / 100],
+      [''],
+      ['CONTINGÊNCIA E PENDÊNCIAS'],
+      ...analysis.rows.map(row => [row.label + ':', row.cents !== undefined ? row.cents / 100 : row.text]),
+      ['Pendências que limitam a conclusão:', analysis.pending.length ? analysis.pending.join('; ') : 'Nenhuma'],
+      [''],
+      ['LIMITAÇÃO DO ARQUIVO', XLSX_LIMITATION]
     ];
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumo');
@@ -53,7 +62,7 @@ export class ExcelExporter {
     const itemHeaders = [
       'Ambiente', 'Item', 'Especificação', 'Estratégia', 'Prioridade', 'Escopo',
       'Situação', 'Preço Base (R$)', 'Frete (R$)', 'Montagem (R$)', 'Instalação (R$)',
-      'Custos Adicionais (R$)', 'Total Instalado (R$)', 'Mês Entrega', 'Fornecedor / Fonte', 'Grau Confiança'
+      'Custos Adicionais (R$)', 'Total Instalado (R$)', 'Mês Entrega', 'Fornecedor / Fonte', 'Grau Confiança', 'Quitação'
     ];
     const itemRows = [itemHeaders];
 
@@ -75,7 +84,8 @@ export class ExcelExporter {
         item.priceKnown === false ? '' : (item.totalInstalledCostCents || 0) / 100,
         item.deliveryMonthIndex !== undefined ? `Mês ${item.deliveryMonthIndex}` : 'N/A',
         item.supplier || '',
-        item.confidenceLevel || 'medium'
+        item.confidenceLevel || 'medium',
+        SETTLEMENT_STATE_LABELS[settlementState(item)] || ''
       ]);
     });
     const wsItems = XLSX.utils.aoa_to_sheet(itemRows);
@@ -137,6 +147,8 @@ export class ExcelExporter {
       ['Aplicar Inflação a Itens Não Contratados:', project.assumptions.applyInflationToUncontracted ? 'Sim' : 'Não'],
       ['Taxa de Rendimento do Fundo:', `${(project.assumptions.yieldRateAnnual || 0) * 100}% a.a.`],
       ['Margem de Contingência:', `${(project.assumptions.contingencyPercent || 0) * 100}%`],
+      ['Regra de contingência:', analysis.rows[0].text],
+      ['Data-alvo da contingência:', analysis.rows.find(row => row.label === 'Data-alvo da contingência').text],
       ['Saldo Inicial do Projeto (R$):', activeProfile.initialBalanceCents === null ? '' : (activeProfile.initialBalanceCents || 0) / 100],
       ['Teto de Aporte Mensal (R$):', activeProfile.monthlyCapCents === null ? '' : (activeProfile.monthlyCapCents || 0) / 100]
     ];

@@ -7,7 +7,10 @@ import { Recommender } from '../engine/Recommender.js';
 import { ScenarioEngine } from '../engine/ScenarioEngine.js';
 import { StorageManager } from '../storage/StorageManager.js';
 import { mergeItemEdit } from '../ui/ItemsUI.js';
-import { planDeliveryShift } from '../models/payments.js';
+import { planDeliveryShift, settlementState } from '../models/payments.js';
+import { buildAnalysisSummary, XLSX_LIMITATION, PDF_LIMITATION } from '../export/AnalysisSummary.js';
+import { ExcelExporter } from '../export/ExcelExporter.js';
+import { PdfExporter } from '../export/PdfExporter.js';
 
 function projectWithBaseDate() {
   const project = createDefaultProject();
@@ -240,7 +243,7 @@ test('cenário de atraso desloca a mudança com segurança para depois das chave
 test('contingência zero permanece zero e a parcela protegida reduz o saldo livre', () => {
   const project = projectWithBaseDate();
   setSimpleBudget(project, 2_000_000, 0);
-  project.assumptions.contingencyMode = 'legacy';
+  project.assumptions.contingencyRule = 'first_disbursement';
   project.assumptions.contingencyPercent = 0;
   project.items = [{
     id: 'item-reserva',
@@ -373,7 +376,7 @@ test('mudança no mesmo mês, mas antes das chaves, é rejeitada', () => {
 test('contingência é exigida a partir do primeiro desembolso, não do mês zero', () => {
   const project = projectWithBaseDate();
   setSimpleBudget(project, 0, 100_000);
-  project.assumptions.contingencyMode = 'legacy';
+  project.assumptions.contingencyRule = 'first_disbursement';
   project.assumptions.contingencyPercent = 0.1;
   project.items = [boughtItem({
     basePriceCents: 1_000_000, shippingCents: 0, deliveryMonthIndex: 36
@@ -463,7 +466,7 @@ test('pagamento realizado permanece inalterado ao mudar a entrega', () => {
 function contingencyProject(initialCents, capCents, items) {
   const project = projectWithBaseDate();
   setSimpleBudget(project, initialCents, capCents);
-  project.assumptions.contingencyMode = 'target';
+  project.assumptions.contingencyRule = 'target';
   project.assumptions.contingencyPercent = 0.1;
   project.assumptions.contingencyTargetDate = '2028-01-15';
   project.items = items;
@@ -549,27 +552,200 @@ test('importação de item comprado sem histórico não inventa data e pede conf
   assert.equal(result.monthlyLedger[5].paymentsThisMonthCents, 10_000);
 });
 
-test('migração mantém a regra anterior de contingência até a confirmação do usuário', () => {
+function mainProjectWithoutRuleMarker() {
   const project = projectWithBaseDate();
   setSimpleBudget(project, 0, 100_000);
   project.assumptions.contingencyPercent = 0.1;
   project.items = [scheduledItem('compra', 1_000_000, 36)];
-  const before = FinancialEngine.calculate(
-    { ...project, assumptions: { ...project.assumptions, contingencyMode: 'legacy' } },
-    { referenceDate: '2026-01-15' }
-  );
-  const old = JSON.parse(JSON.stringify(project));
-  delete old.assumptions.contingencyMode;
-  delete old.assumptions.contingencyTargetDate;
-  const migrated = StorageManager.migrateAndValidateSchema(old);
-  assert.equal(migrated.assumptions.contingencyMode, 'legacy');
-  const after = FinancialEngine.calculate(migrated, { referenceDate: '2026-01-15' });
-  assert.equal(after.contingencyStartMonth, before.contingencyStartMonth);
-  assert.equal(after.firstDeficitMonth, before.firstDeficitMonth);
-  assert.equal(after.finalFreeBalanceCents, before.finalFreeBalanceCents);
-  assert.equal(after.hasCompleteData, before.hasCompleteData);
-  const confirmed = StorageManager.migrateAndValidateSchema({
-    ...old, assumptions: { ...old.assumptions, contingencyMode: 'target', contingencyTargetDate: '2028-01-15' }
-  });
-  assert.equal(confirmed.assumptions.contingencyMode, 'target');
+  const raw = JSON.parse(JSON.stringify(project));
+  delete raw.assumptions.contingencyRule;
+  delete raw.assumptions.contingencyRuleConfirmed;
+  delete raw.assumptions.ruleSchemaVersion;
+  delete raw.assumptions.contingencyMode;
+  delete raw.assumptions.contingencyTargetDate;
+  return raw;
+}
+
+test('projeto da versão publicada sem marcador migra para a reserva desde o mês 0, sem confirmar a origem', () => {
+  const migrated = StorageManager.migrateAndValidateSchema(mainProjectWithoutRuleMarker());
+  assert.equal(migrated.assumptions.contingencyRule, 'month_zero');
+  assert.equal(migrated.assumptions.contingencyRuleConfirmed, false);
+  assert.equal(migrated.assumptions.ruleSchemaVersion, 2);
+  const result = FinancialEngine.calculate(migrated, { referenceDate: '2026-01-15' });
+  assert.equal(result.contingencyStartMonth, 0);
+  assert.equal(result.firstDeficitMonth, 0);
+  assert.equal(result.contingency.ruleNeedsReview, true);
+  const viability = ScenarioEngine.evaluateViability(result, migrated);
+  assert.equal(viability.status, 'requires_adjustments');
+  assert.ok(viability.reasons.some(reason => /regra de contingência/.test(reason)));
 });
+
+test('marcador de compilação intermediária mantém o primeiro desembolso e a regra explícita não exige revisão', () => {
+  const raw = mainProjectWithoutRuleMarker();
+  raw.assumptions.contingencyMode = 'legacy';
+  const intermediate = StorageManager.migrateAndValidateSchema(raw);
+  assert.equal(intermediate.assumptions.contingencyRule, 'first_disbursement');
+  assert.equal(intermediate.assumptions.contingencyRuleConfirmed, false);
+  const result = FinancialEngine.calculate(intermediate, { referenceDate: '2026-01-15' });
+  assert.equal(result.contingencyStartMonth, 36);
+  assert.equal(result.firstDeficitMonth, null);
+
+  raw.assumptions.contingencyRule = 'first_disbursement';
+  raw.assumptions.contingencyRuleConfirmed = true;
+  const confirmed = StorageManager.migrateAndValidateSchema(raw);
+  assert.equal(FinancialEngine.calculate(confirmed, { referenceDate: '2026-01-15' }).contingency.ruleNeedsReview, false);
+  const fresh = StorageManager.migrateAndValidateSchema(JSON.parse(JSON.stringify(createDefaultProject())));
+  assert.equal(fresh.assumptions.contingencyRule, 'target');
+});
+
+test('migrar e reimportar não altera o diagnóstico da regra anterior', () => {
+  const migrated = StorageManager.migrateAndValidateSchema(mainProjectWithoutRuleMarker());
+  const again = StorageManager.migrateAndValidateSchema(JSON.parse(JSON.stringify(migrated)));
+  const first = FinancialEngine.calculate(migrated, { referenceDate: '2026-01-15' });
+  const second = FinancialEngine.calculate(again, { referenceDate: '2026-01-15' });
+  assert.equal(second.contingency.rule, 'month_zero');
+  assert.equal(second.firstDeficitMonth, first.firstDeficitMonth);
+  assert.equal(second.finalFreeBalanceCents, first.finalFreeBalanceCents);
+});
+
+function unconfirmedBoughtProject() {
+  const project = projectWithBaseDate();
+  setSimpleBudget(project, 1_000_000, 0);
+  project.items = [boughtItem({
+    id: 'sofa', name: 'Sofá', status: STATUS_OPTIONS.BOUGHT,
+    basePriceCents: 100_000, shippingCents: 10_000, payments: []
+  })];
+  return project;
+}
+
+test('quitação não confirmada torna a análise preliminar e explica o que confirmar', () => {
+  const project = unconfirmedBoughtProject();
+  const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  const viability = ScenarioEngine.evaluateViability(result, project);
+  assert.equal(viability.status, 'insufficient_data');
+  assert.ok(result.missingFields.includes('settlement:sofa'));
+  assert.ok(viability.missingFieldLabels.some(label => /Confirmar se a compra de Sofá/.test(label)));
+});
+
+test('recusar a confirmação não confirma a quitação; confirmar registra data desconhecida', () => {
+  const project = unconfirmedBoughtProject();
+  const existing = project.items[0];
+  const updates = formUpdates({
+    id: 'sofa', basePriceCents: 100_000, shippingCents: 10_000, deliveryMonthIndex: 5,
+    status: STATUS_OPTIONS.BOUGHT
+  });
+  const refused = mergeItemEdit(existing, updates, {}, { confirmSettlement: false });
+  assert.equal(settlementState(refused), 'unconfirmed');
+  assert.equal(refused.payments.length, 0);
+  const accepted = mergeItemEdit(existing, updates, {}, { confirmSettlement: true });
+  assert.equal(settlementState(accepted), 'confirmed_unknown_date');
+  const paid = accepted.payments.filter(p => p.isPaid);
+  assert.equal(paid.length, 1);
+  assert.equal(paid[0].origin, 'declared_by_user');
+  assert.equal(paid[0].paidDate, null);
+});
+
+test('quitação importada persistida como não confirmada não conta como paga até ser confirmada', () => {
+  const existing = boughtItem({
+    status: STATUS_OPTIONS.BOUGHT, basePriceCents: 100_000, shippingCents: 0,
+    payments: [{ amountCents: 100_000, monthIndex: 0, isPaid: true, dateUnknown: true, paidDate: null, origin: 'imported_unconfirmed' }]
+  });
+  assert.equal(settlementState(existing), 'unconfirmed');
+  const updates = formUpdates({ id: existing.id, basePriceCents: 100_000, shippingCents: 0, deliveryMonthIndex: 5, status: STATUS_OPTIONS.BOUGHT });
+  const confirmed = mergeItemEdit(existing, updates, {}, { confirmSettlement: true });
+  assert.equal(confirmed.payments.length, 1);
+  assert.equal(confirmed.payments[0].origin, 'declared_by_user');
+});
+
+test('quitação histórica confirmada não é descontada de novo do saldo inicial', () => {
+  const project = unconfirmedBoughtProject();
+  project.items[0] = mergeItemEdit(project.items[0], formUpdates({
+    id: 'sofa', basePriceCents: 100_000, shippingCents: 10_000, deliveryMonthIndex: 5,
+    status: STATUS_OPTIONS.BOUGHT
+  }), {}, { confirmSettlement: true });
+  const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  assert.equal(result.monthlyLedger[0].endBalanceCents, 1_000_000);
+  assert.equal(result.monthlyLedger[0].paymentsThisMonthCents, 0);
+  assert.equal(result.monthlyLedger[5].paymentsThisMonthCents, 10_000);
+  assert.equal(result.settlementReview.length, 0);
+});
+
+function reserveShortfallProject() {
+  const project = contingencyProject(100_000, 0, [scheduledItem('sinal', 100_000, 3)]);
+  project.items.push(boughtItem({
+    id: 'extra', name: 'Sofá <b>', status: STATUS_OPTIONS.QUOTED, basePriceCents: 0, shippingCents: 0, payments: []
+  }));
+  return project;
+}
+
+test('resumo de exportação usa o resultado calculado: regra, reserva, data-alvo, caixa e contingência', () => {
+  const project = reserveShortfallProject();
+  const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  result.viability = ScenarioEngine.evaluateViability(result, project);
+  const summary = buildAnalysisSummary(project, result);
+  const byLabel = Object.fromEntries(summary.rows.map(row => [row.label, row]));
+  assert.match(byLabel['Regra de contingência'].text, /data-alvo/);
+  assert.equal(byLabel['Percentual da reserva'].text, '10%');
+  assert.equal(byLabel['Valor da reserva protegida'].cents, result.contingency.protectedCents);
+  assert.match(byLabel['Data-alvo da contingência'].text, /2028-01-15/);
+  assert.equal(byLabel['Reserva faltante na data-alvo'].cents, result.contingency.shortfallAtTargetCents);
+  assert.match(byLabel['Diagnóstico de caixa'].text, /Sem déficit/);
+  assert.match(byLabel['Diagnóstico de contingência'].text, /não se mantém/);
+  assert.equal(byLabel['Conclusão'].text, result.viability.label);
+
+  const legacy = JSON.parse(JSON.stringify(project));
+  legacy.assumptions.contingencyRule = 'month_zero';
+  legacy.assumptions.contingencyRuleConfirmed = false;
+  const legacyResult = FinancialEngine.calculate(legacy, { referenceDate: '2026-01-15' });
+  legacyResult.viability = ScenarioEngine.evaluateViability(legacyResult, legacy);
+  const legacySummary = buildAnalysisSummary(legacy, legacyResult);
+  assert.ok(legacySummary.rows[0].text.includes('mês 0'));
+  assert.ok(legacySummary.pending.includes('Confirmar a regra de contingência do projeto'));
+});
+
+test('XLSX e PDF incluem as mesmas informações de contingência da tela e identificam as limitações', () => {
+  const project = reserveShortfallProject();
+  const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  result.viability = ScenarioEngine.evaluateViability(result, project);
+
+  const sheets = {};
+  const previousXlsx = globalThis.XLSX;
+  globalThis.XLSX = {
+    utils: {
+      book_new: () => ({}),
+      aoa_to_sheet: rows => rows,
+      book_append_sheet: (_wb, sheet, name) => { sheets[name] = sheet; }
+    },
+    writeFile: () => {}
+  };
+  try {
+    ExcelExporter.exportToExcel(project, result);
+  } finally {
+    globalThis.XLSX = previousXlsx;
+  }
+  const flat = sheets.Resumo.map(row => row.join('|'));
+  assert.ok(flat.some(line => line.startsWith('Valor da reserva protegida:|') &&
+    line.endsWith(String(result.contingency.protectedCents / 100))));
+  assert.ok(flat.some(line => line.startsWith('Data-alvo da contingência:|2028-01-15')));
+  assert.ok(flat.some(line => line.startsWith('Diagnóstico de contingência:')));
+  assert.ok(flat.some(line => line.startsWith('Pendências que limitam a conclusão:')));
+  assert.ok(flat.some(line => line.includes(XLSX_LIMITATION)));
+  assert.ok(sheets.Premissas.some(row => row[0] === 'Regra de contingência:'));
+  assert.ok(sheets.Itens[0].includes('Quitação'));
+
+  let html = '';
+  const fakeOpen = () => ({ document: { write: value => { html = value; }, close: () => {} } });
+  const hadWindow = typeof globalThis.window !== 'undefined';
+  const previousOpen = hadWindow ? globalThis.window.open : undefined;
+  if (hadWindow) globalThis.window.open = fakeOpen; else globalThis.window = { open: fakeOpen };
+  try {
+    PdfExporter.exportToPdf(project, result, false);
+  } finally {
+    if (hadWindow) globalThis.window.open = previousOpen; else delete globalThis.window;
+  }
+  assert.ok(html.includes('Contingência, Diagnóstico e Pendências'));
+  assert.ok(html.includes('Reserva faltante na data-alvo'));
+  assert.ok(html.includes(PDF_LIMITATION));
+  assert.ok(!html.includes('Sofá <b>'));
+});
+

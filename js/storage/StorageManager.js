@@ -5,6 +5,9 @@ import {
   STATUS_OPTIONS,
   STRATEGY_OPTIONS
 } from '../models/types.js';
+import {
+  CONTINGENCY_RULE, RULE_SCHEMA_VERSION, resolveContingencyRule
+} from '../models/contingencyRules.js';
 
 const STORAGE_KEY = 'meu_ape_planejado_project';
 const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
@@ -163,14 +166,7 @@ export class StorageManager {
           ...(project.budgetProfile.detailed || {})
         }
       },
-      assumptions: {
-        ...defaultProject.assumptions,
-        ...(project.assumptions || {}),
-        // Projetos sem o modo explícito mantêm a regra anterior até confirmação do usuário.
-        contingencyMode: project.assumptions?.contingencyMode === 'target' ? 'target' : 'legacy',
-        contingencyTargetDate: typeof project.assumptions?.contingencyTargetDate === 'string'
-          ? project.assumptions.contingencyTargetDate : ''
-      },
+      assumptions: migrateAssumptions(defaultProject.assumptions, project.assumptions),
       items: project.items || [],
       paidHistory: project.paidHistory || []
     };
@@ -285,6 +281,23 @@ export class StorageManager {
       }
     }
   }
+}
+
+function migrateAssumptions(defaults, raw) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const { contingencyMode: _legacyMode, ...rest } = source;
+  const rule = resolveContingencyRule(source);
+  const explicit = Object.values(CONTINGENCY_RULE).includes(source.contingencyRule);
+  return {
+    ...defaults,
+    ...rest,
+    ruleSchemaVersion: RULE_SCHEMA_VERSION,
+    contingencyRule: rule,
+    // Sem versão explícita a origem é ambígua: a regra anterior é mantida, mas exige revisão.
+    contingencyRuleConfirmed: rule === CONTINGENCY_RULE.TARGET ||
+      (explicit && source.contingencyRuleConfirmed !== false),
+    contingencyTargetDate: typeof source.contingencyTargetDate === 'string' ? source.contingencyTargetDate : ''
+  };
 }
 
 function isValidDate(value) {

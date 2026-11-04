@@ -39,7 +39,10 @@ export class ScenarioEngine {
       reasons.push(`A contingência não se mantém formada a partir do mês ${reserveShortfallMonth} (falta até R$ ${(result.contingency.maxReserveShortfallCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}), embora o caixa não fique negativo.`);
     }
     if (result?.settlementReview?.length) {
-      reasons.push(`Há compra(s) declarada(s) como paga(s) sem histórico de pagamento a confirmar: ${result.settlementReview.map(item => item.name).join(', ')}.`);
+      reasons.push(`Análise preliminar: confirme se foi paga a compra de ${result.settlementReview.map(item => item.name).join(', ')}. Se não foi paga, o valor ainda é uma saída futura e muda a projeção.`);
+    }
+    if (result?.contingency?.ruleNeedsReview) {
+      reasons.push('Este projeto foi salvo sem a versão da regra de contingência e segue a regra anterior; revise e confirme a migração para a regra com data-alvo.');
     }
     if (result?.hasFamilyBudgetDeficit) {
       reasons.push('As obrigações informadas excedem a renda mensal em pelo menos um mês.');
@@ -84,6 +87,7 @@ export class ScenarioEngine {
       firstReserveShortfallMonth: result?.contingency?.firstReserveShortfallMonth ?? null,
       maxReserveShortfallCents: result?.contingency?.maxReserveShortfallCents ?? 0,
       settlementReview: result?.settlementReview ?? [],
+      contingency: result?.contingency ?? null,
       worstDeficitMonth: result?.worstDeficitMonth ?? null,
       maxDeficitCents: result?.maxDeficitCents ?? 0,
       balanceAtMoveCents: result?.balanceAtMoveCents ?? null,
@@ -107,6 +111,11 @@ export class ScenarioEngine {
       'apartment.moveDate': 'Data desejada para a mudança',
       'assumptions.contingencyTargetDate': 'Data-alvo para ter a contingência formada'
     };
+    if (field.startsWith('settlement:')) {
+      const itemId = field.slice('settlement:'.length);
+      const item = project?.items?.find(entry => entry.id === itemId);
+      return item ? `Confirmar se a compra de ${item.name} já foi paga` : 'Confirmar a quitação de uma compra';
+    }
     if (field.startsWith('price:')) {
       const itemId = field.slice('price:'.length);
       const item = project?.items?.find(entry => entry.id === itemId);
