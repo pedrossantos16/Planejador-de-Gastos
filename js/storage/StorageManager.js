@@ -165,7 +165,11 @@ export class StorageManager {
       },
       assumptions: {
         ...defaultProject.assumptions,
-        ...(project.assumptions || {})
+        ...(project.assumptions || {}),
+        // Projetos sem o modo explícito mantêm a regra anterior até confirmação do usuário.
+        contingencyMode: project.assumptions?.contingencyMode === 'target' ? 'target' : 'legacy',
+        contingencyTargetDate: typeof project.assumptions?.contingencyTargetDate === 'string'
+          ? project.assumptions.contingencyTargetDate : ''
       },
       items: project.items || [],
       paidHistory: project.paidHistory || []

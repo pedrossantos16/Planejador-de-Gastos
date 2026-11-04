@@ -134,6 +134,19 @@ class App {
   }
 
   bindHeaderEvents() {
+    const btnContingency = document.getElementById('btnConfirmContingencyRule');
+    if (btnContingency) {
+      btnContingency.addEventListener('click', () => {
+        this.formsUI.readForms(this.project);
+        if (!this.project.assumptions.contingencyTargetDate) {
+          alert('Informe a data-alvo da contingência antes de adotar a nova regra.');
+          return;
+        }
+        if (!confirm('Adotar a regra com data-alvo? A reserva deixa de ser exigida integralmente desde o primeiro desembolso e o resultado financeiro pode mudar.')) return;
+        this.project.assumptions.contingencyMode = 'target';
+        this.handleDataChange();
+      });
+    }
     // Seletor de Demos
     const demoSelect = document.getElementById('demoSelector');
     if (demoSelect) {
@@ -307,6 +320,38 @@ class App {
     base.textContent = `Data-base: ${result.baseDate}. Contingência protegida: R$ ${(result.contingencyProtectedCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`;
     fragment.appendChild(base);
     container.replaceChildren(fragment);
+    this.renderContingencyStatus(result);
+    if (result.settlementReview?.length) {
+      const review = document.createElement('p');
+      review.textContent = `Compras declaradas como pagas sem histórico (data não informada), a confirmar: ${result.settlementReview.map(item => item.name).join(', ')}.`;
+      container.appendChild(review);
+    }
+  }
+
+  renderContingencyStatus(result) {
+    const box = document.getElementById('contingencyStatus');
+    const button = document.getElementById('btnConfirmContingencyRule');
+    if (!box) return;
+    const c = result.contingency;
+    const fmt = cents => `R$ ${(cents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+    let text;
+    if (c.protectedCents === 0) {
+      text = 'Sem contingência configurada.';
+    } else if (c.mode === 'legacy') {
+      text = `Regra anterior ativa: a reserva de ${fmt(c.protectedCents)} é exigida integralmente desde o primeiro desembolso. Informe a data-alvo e adote a nova regra para planejar a formação progressiva.`;
+    } else if (c.targetMonth === null) {
+      text = 'Informe a data-alvo para avaliar a formação da reserva.';
+    } else {
+      const formed = fmt(c.formedAtTargetCents);
+      text = c.sufficientAtTarget
+        ? `Na data-alvo (mês ${c.targetMonth}) a projeção forma ${formed} de ${fmt(c.protectedCents)}: suficiente.`
+        : `Na data-alvo (mês ${c.targetMonth}) a projeção forma ${formed} de ${fmt(c.protectedCents)}: faltam ${fmt(c.shortfallAtTargetCents)}.`;
+      if (c.firstReserveShortfallMonth !== null) {
+        text += ` Após a data-alvo, a reserva deixa de se manter a partir do mês ${c.firstReserveShortfallMonth} (falta até ${fmt(c.maxReserveShortfallCents)}).`;
+      }
+    }
+    box.textContent = text;
+    if (button) button.hidden = c.mode !== 'legacy' || c.protectedCents === 0;
   }
 
   exportPreviousProjectBackup() {

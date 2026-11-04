@@ -24,7 +24,7 @@ export class FormsUI {
   }
 
   initFormChangeListeners() {
-    ['formStep1', 'formStep2', 'formStep4'].forEach(id => {
+    ['formStep1', 'step2', 'step4'].forEach(id => {
       const form = document.getElementById(id);
       if (!form) return;
       ['input', 'change'].forEach(eventName => {
@@ -118,6 +118,7 @@ export class FormsUI {
     this.setVal('annualInflation', (assumptions.annualInflationRate ?? 0) * 100);
     this.setCheck('applyInflationUncontracted', !!assumptions.applyInflationToUncontracted);
     this.setVal('contingencyPercent', (assumptions.contingencyPercent ?? 0) * 100);
+    this.setVal('contingencyTargetDate', assumptions.contingencyTargetDate || '');
     this.isPopulating = false;
   }
 
@@ -174,6 +175,7 @@ export class FormsUI {
 
     const contPct = Number(this.getVal('contingencyPercent')) || 0;
     project.assumptions.contingencyPercent = contPct / 100;
+    project.assumptions.contingencyTargetDate = this.getVal('contingencyTargetDate') || '';
 
     return project;
   }
