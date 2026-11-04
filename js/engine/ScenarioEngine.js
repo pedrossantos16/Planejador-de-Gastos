@@ -1,5 +1,5 @@
 import { FinancialEngine } from './FinancialEngine.js';
-import { STRATEGY_OPTIONS, SCOPE_OPTIONS, PRIORITY_OPTIONS } from '../models/types.js';
+import { SCOPE_OPTIONS, PRIORITY_OPTIONS } from '../models/types.js';
 
 export const VIABILITY_STATUS = {
   VIABLE: 'viable',                   // Compatível com as premissas informadas
@@ -16,145 +16,103 @@ export const VIABILITY_LABELS = {
 };
 
 export class ScenarioEngine {
-  /**
-   * Avalia a viabilidade estrita de um resultado financeiro.
-   */
-  static diagnoseViability(result, project) {
-    // Checar se há itens ou preços preenchidos
-    if (!result.processedItems || result.processedItems.length === 0) {
-      return VIABILITY_STATUS.INSUFFICIENT_DATA;
+  static evaluateViability(result, project = null) {
+    const reasons = [];
+    const missingFields = result?.missingFields || [];
+    if (!result || !result.processedItems || result.processedItems.length === 0) {
+      reasons.push('Ainda não há itens suficientes para avaliar o planejamento.');
+    }
+    if (!result?.hasCompleteData || missingFields.length > 0) {
+      reasons.push('Há dados essenciais não informados; esta análise é preliminar.');
+    }
+    if (result?.firstDeficitMonth !== null && result?.firstDeficitMonth !== undefined) {
+      reasons.push(`O caixa livre fica negativo primeiro no mês ${result.firstDeficitMonth}.`);
+    }
+    if (result?.hasFamilyBudgetDeficit) {
+      reasons.push('As obrigações informadas excedem a renda mensal em pelo menos um mês.');
+    }
+    if (result?.essentialItemsReadyBeforeMove === false) {
+      reasons.push('Há itens essenciais que não estarão prontos até a mudança.');
     }
 
-    const hasPricedItems = result.processedItems.some(item => item.totalInstalledCostCents > 0);
-    if (!hasPricedItems) {
-      return VIABILITY_STATUS.INSUFFICIENT_DATA;
+    let status = VIABILITY_STATUS.VIABLE;
+    if (!result || !result.processedItems?.length || !result.hasCompleteData || missingFields.length > 0) {
+      status = VIABILITY_STATUS.INSUFFICIENT_DATA;
+    } else if (result.firstDeficitMonth !== null || result.hasFamilyBudgetDeficit ||
+        result.essentialItemsReadyBeforeMove === false) {
+      status = VIABILITY_STATUS.REQUIRES_ADJUSTMENTS;
+    } else {
+      const selectedItems = result.processedItems.filter(item =>
+        item.scope === SCOPE_OPTIONS.INCLUDE || item.scope === SCOPE_OPTIONS.ALREADY_OWNED
+      );
+      const hasEssentialItems = selectedItems.some(item => item.priority === PRIORITY_OPTIONS.ESSENTIAL);
+      const hasOtherSelectedItems = selectedItems.some(item =>
+        item.priority !== PRIORITY_OPTIONS.ESSENTIAL
+      );
+      if (hasEssentialItems && !hasOtherSelectedItems) status = VIABILITY_STATUS.ESSENTIAL_ONLY;
     }
 
-    // Regra 1: Se houver qualquer déficit de caixa no fundo em algum mês -> REQUER AJUSTES
-    if (result.firstDeficitMonth !== null) {
-      return VIABILITY_STATUS.REQUIRES_ADJUSTMENTS;
+    const firstDeficitEntry = result?.firstDeficitMonth === null
+      ? null
+      : result?.monthlyLedger?.[result.firstDeficitMonth];
+    return {
+      status,
+      label: VIABILITY_LABELS[status],
+      reasons,
+      missingFields: [...missingFields],
+      missingFieldLabels: missingFields.map(field => this.describeMissingField(field, project)),
+      firstDeficitMonth: result?.firstDeficitMonth ?? null,
+      firstDeficitAmountCents: firstDeficitEntry
+        ? Math.max(0, -firstDeficitEntry.freeBalanceCents)
+        : 0,
+      worstDeficitMonth: result?.worstDeficitMonth ?? null,
+      maxDeficitCents: result?.maxDeficitCents ?? 0,
+      balanceAtMoveCents: result?.balanceAtMoveCents ?? null,
+      finalBalanceCents: result?.finalBalanceCents ?? null,
+      postMoveLiabilitiesCents: result?.postMoveLiabilitiesCents ?? 0
+    };
+  }
+
+  static describeMissingField(field, project) {
+    const labels = {
+      initialBalanceCents: 'Saldo reservado exclusivamente para o projeto',
+      monthlyCapCents: 'Teto mensal autorizado',
+      netMonthlyIncomeCents: 'Renda líquida mensal',
+      fixedLivingExpensesCents: 'Despesas fixas de vida',
+      variableLivingExpensesCents: 'Despesas variáveis',
+      propertyInstallmentCents: 'Parcela mensal do imóvel',
+      otherDebtsCents: 'Outras dívidas mensais',
+      safetyMarginCents: 'Margem de segurança mensal',
+      postMoveExpensesCents: 'Despesas mensais adicionais após as chaves',
+      'apartment.keysDate': 'Data prevista das chaves',
+      'apartment.moveDate': 'Data desejada para a mudança'
+    };
+    if (field.startsWith('price:')) {
+      const itemId = field.slice('price:'.length);
+      const item = project?.items?.find(entry => entry.id === itemId);
+      return item ? `Preço informado para ${item.name}` : 'Preço de um item incluído';
     }
+    return labels[field] || field;
+  }
 
-    // Regra 2: Se itens essenciais não puderem estar prontos antes da mudança -> REQUER AJUSTES
-    if (!result.essentialItemsReadyBeforeMove) {
-      return VIABILITY_STATUS.REQUIRES_ADJUSTMENTS;
-    }
-
-    // Regra 3: Se houver déficit no orçamento familiar mensal -> REQUER AJUSTES
-    if (result.hasFamilyBudgetDeficit) {
-      return VIABILITY_STATUS.REQUIRES_ADJUSTMENTS;
-    }
-
-    // Regra 4: Testar se o plano completo cabe. Se sim -> VIABLE.
-    // Se o plano completo exceder a capacidade acumulada, mas o essencial couber -> ESSENTIAL_ONLY.
-    const hasImportantOrOptionalIncluded = result.processedItems.some(
-      item => (item.priority === PRIORITY_OPTIONS.IMPORTANT || item.priority === PRIORITY_OPTIONS.OPTIONAL) &&
-              (item.scope === SCOPE_OPTIONS.INCLUDE)
-    );
-
-    if (hasImportantOrOptionalIncluded) {
-      return VIABILITY_STATUS.VIABLE;
-    }
-
-    return VIABILITY_STATUS.ESSENTIAL_ONLY;
+  static diagnoseViability(result) {
+    return this.evaluateViability(result).status;
   }
 
   /**
    * Gera os 3 cenários comparativos (Econômico, Equilibrado, Conforto) para o mesmo projeto.
    */
   static generateScenarios(project) {
-    const baseItems = project.items || [];
-
-    // 1. Cenário Econômico Funcional (Móveis modulados / prontos, foco em prioridade Essencial)
-    const itemsEconomic = baseItems.map(item => {
-      let strategy = item.strategy;
-      if (strategy === STRATEGY_OPTIONS.CUSTOM_WOODWORK || strategy === STRATEGY_OPTIONS.FACTORY_PLANNED) {
-        strategy = STRATEGY_OPTIONS.MODULAR;
-      }
-
-      // No cenário econômico, itens opcionais são adiados por padrão se o usuário não travou a escolha
-      let scope = item.scope;
-      if (item.priority === PRIORITY_OPTIONS.OPTIONAL && scope === SCOPE_OPTIONS.INCLUDE) {
-        scope = SCOPE_OPTIONS.POSTPONE;
-      }
-
-      // Redução de custo estimada para modulados (~30% a menos que sob medida)
-      let basePriceCents = item.basePriceCents;
-      if (item.strategy === STRATEGY_OPTIONS.CUSTOM_WOODWORK && strategy === STRATEGY_OPTIONS.MODULAR) {
-        basePriceCents = Math.round(basePriceCents * 0.70);
-      }
-
-      return {
-        ...item,
-        strategy,
-        scope,
-        basePriceCents
-      };
-    });
-
-    // 2. Cenário Equilibrado (Estratégias mistas: sob medida na cozinha/quarto casal, modulados no restante)
-    const itemsBalanced = baseItems.map(item => {
-      let strategy = item.strategy;
-      let basePriceCents = item.basePriceCents;
-
-      // Cozinha e Quarto Casal mantêm sob medida/planejado; demais salas/quartos usam modulado/pronto
-      const isKeyRoom = item.roomId === 'room_cozinha' || item.roomId === 'room_quarto_principal';
-      if (!isKeyRoom && (strategy === STRATEGY_OPTIONS.CUSTOM_WOODWORK)) {
-        strategy = STRATEGY_OPTIONS.MODULAR;
-        basePriceCents = Math.round(basePriceCents * 0.75);
-      }
-
-      return {
-        ...item,
-        strategy,
-        basePriceCents
-      };
-    });
-
-    // 3. Cenário Maior Durabilidade / Conforto (Marcenaria sob medida/planejados em todos os ambientes)
-    const itemsComfort = baseItems.map(item => {
-      let strategy = item.strategy;
-      let basePriceCents = item.basePriceCents;
-
-      if (strategy === STRATEGY_OPTIONS.READY_MADE || strategy === STRATEGY_OPTIONS.MODULAR) {
-        strategy = STRATEGY_OPTIONS.CUSTOM_WOODWORK;
-        basePriceCents = Math.round(basePriceCents * 1.35); // Sob medida ~35% acima de pronto
-      }
-
-      return {
-        ...item,
-        strategy,
-        scope: item.scope === SCOPE_OPTIONS.POSTPONE ? SCOPE_OPTIONS.INCLUDE : item.scope,
-        basePriceCents
-      };
-    });
-
-    // Executar simulação para os 3 cenários
-    const resEconomic = FinancialEngine.calculate(project, { items: itemsEconomic });
-    const resBalanced = FinancialEngine.calculate(project, { items: itemsBalanced });
-    const resComfort = FinancialEngine.calculate(project, { items: itemsComfort });
-
+    const result = FinancialEngine.calculate(project);
+    result.viability = this.evaluateViability(result, project);
     return {
-      economic: {
-        id: 'scenario_economic',
-        name: 'Econômico Funcional',
-        description: 'Prioriza modulados e móveis prontos, reduzindo o investimento inicial sem comprometer a mudança.',
-        result: resEconomic,
-        status: this.diagnoseViability(resEconomic, project)
-      },
-      balanced: {
-        id: 'scenario_balanced',
-        name: 'Equilibrado (Recomendado)',
-        description: 'Combina marcenaria sob medida nos ambientes principais (cozinha e suíte) com modulados no restante.',
-        result: resBalanced,
-        status: this.diagnoseViability(resBalanced, project)
-      },
-      comfort: {
-        id: 'scenario_comfort',
-        name: 'Maior Durabilidade & Conforto',
-        description: 'Marcenaria sob medida integral em todos os ambientes com aproveitamento total de espaço.',
-        result: resComfort,
-        status: this.diagnoseViability(resComfort, project)
+      base: {
+          id: 'scenario_base',
+          name: project.isDemonstration ? 'Plano informado (demonstração fictícia)' : 'Plano informado',
+          description: 'Alternativas de preço só serão comparadas quando houver cotações cadastradas com fonte e especificação.',
+          result,
+          viability: result.viability,
+          status: result.viability.status
       }
     };
   }

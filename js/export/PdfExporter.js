@@ -1,4 +1,5 @@
 import { STRATEGY_LABELS, PRIORITY_LABELS, STATUS_LABELS } from '../models/types.js';
+import { ScenarioEngine } from '../engine/ScenarioEngine.js';
 
 export class PdfExporter {
   /**
@@ -8,6 +9,7 @@ export class PdfExporter {
    * @param {boolean} [isDetailed=false] Se true, inclui o relatório detalhado completo
    */
   static exportToPdf(project, result, isDetailed = false) {
+    const viability = result.viability || ScenarioEngine.evaluateViability(result);
     const printWindow = window.open('', '_blank', 'width=900,height=1000');
     if (!printWindow) {
       alert('Por favor, permita pop-ups para gerar a impressão em PDF do relatório.');
@@ -22,7 +24,7 @@ export class PdfExporter {
       <html lang="pt-BR">
       <head>
         <meta charset="UTF-8">
-        <title>${title} - ${project.name}</title>
+        <title>${title} - ${escapeHtml(project.name)}</title>
         <style>
           @page { size: A4; margin: 15mm; }
           body { font-family: system-ui, -apple-system, sans-serif; color: #1e293b; line-height: 1.5; font-size: 13px; margin: 0; padding: 0; }
@@ -48,12 +50,12 @@ export class PdfExporter {
       </head>
       <body>
         <div class="no-print" style="background:#eff6ff; padding:10px 16px; margin-bottom:16px; border-radius:6px; display:flex; justify-content:space-between; align-items:center;">
-          <span>Visualização de Impressão do PDF. Clique no botão ao lado para salvar ou imprimir.</span>
+          <span>Prévia para impressão. Este site não baixa um PDF automaticamente; escolha "Salvar como PDF" no diálogo de impressão.</span>
           <button onclick="window.print()" style="background:#2563eb; color:#fff; border:none; padding:8px 16px; border-radius:4px; cursor:pointer; font-weight:600;">Imprimir / Salvar PDF</button>
         </div>
 
-        <h1>${project.name}</h1>
-        <div class="subtitle">${title} • Gerado em ${todayStr} • Horizonte: ${result.monthsToKeys} meses até as chaves e ${result.monthsToMove} meses até a mudança</div>
+        <h1>${escapeHtml(project.name)}</h1>
+        <div class="subtitle">${project.isDemonstration ? '<strong>DEMONSTRAÇÃO FICTÍCIA — não é pesquisa de mercado</strong> • ' : ''}${title} • Gerado em ${todayStr} • Horizonte: ${result.monthsToKeys ?? 'não informado'} meses até as chaves e ${result.monthsToMove ?? 'não informado'} meses até a mudança</div>
 
         <div class="grid">
           <div class="card">
@@ -63,9 +65,7 @@ export class PdfExporter {
           <div class="card">
             <div class="card-title">Status de Viabilidade</div>
             <div class="card-val" style="font-size:14px; margin-top:4px;">
-              ${result.firstDeficitMonth !== null
-                ? `<span class="status-tag status-warning">REQUER AJUSTES (Déficit no Mês ${result.firstDeficitMonth})</span>`
-                : `<span class="status-tag status-viable">PLANO VIÁVEL E COMPATÍVEL</span>`}
+              <span class="status-tag ${viability.status === 'viable' || viability.status === 'essential_only' ? 'status-viable' : 'status-warning'}">${escapeHtml(viability.label)}</span>
             </div>
           </div>
           <div class="card">
@@ -73,8 +73,8 @@ export class PdfExporter {
             <div class="card-val">R$ ${(result.totalEssentialCostCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
           </div>
           <div class="card">
-            <div class="card-title">Saldo Final do Fundo de Mobília</div>
-            <div class="card-val">R$ ${(result.finalBalanceCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+            <div class="card-title">Saldo Livre após contingência</div>
+            <div class="card-val">R$ ${(result.finalFreeBalanceCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
           </div>
         </div>
 
@@ -126,10 +126,10 @@ export class PdfExporter {
               .filter(i => i.scope === 'include' || i.scope === 'already_owned')
               .map(item => `
                 <tr>
-                  <td>${getRoomName(project, item.roomId)}</td>
-                  <td><strong>${item.name}</strong></td>
-                  <td>${STRATEGY_LABELS[item.strategy] || item.strategy}</td>
-                  <td>${STATUS_LABELS[item.status] || item.status}</td>
+                  <td>${escapeHtml(getRoomName(project, item.roomId))}</td>
+                  <td><strong>${escapeHtml(item.name)}</strong></td>
+                  <td>${escapeHtml(STRATEGY_LABELS[item.strategy] || item.strategy)}</td>
+                  <td>${escapeHtml(STATUS_LABELS[item.status] || item.status)}</td>
                   <td class="text-right">R$ ${(item.totalInstalledCostCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                 </tr>
               `).join('')}
@@ -154,7 +154,7 @@ export class PdfExporter {
         ` : ''}
 
         <div class="footer">
-          "Meu Apê Planejado" • Planejamento e gestão financeira de mobília sem segredos.
+          "Meu Apê Planejado" • ${project.isDemonstration ? 'Demonstração fictícia — não é pesquisa de mercado.' : 'Planejamento baseado nas informações fornecidas pelo usuário.'}
         </div>
       </body>
       </html>
@@ -176,6 +176,16 @@ function calcPercent(part, total) {
   return ((part / total) * 100).toFixed(1);
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[character]);
+}
+
 function getRoomName(project, roomId) {
   const r = (project.apartment.rooms || []).find(room => room.id === roomId);
   return r ? r.name : 'Ambiente';
@@ -188,7 +198,7 @@ function renderQuarterlySummary(ledger) {
     const slice = ledger.slice(q, q + 3);
     const aportes = slice.reduce((s, m) => s + m.plannedContributionCents, 0);
     const pagamentos = slice.reduce((s, m) => s + m.paymentsThisMonthCents, 0);
-    const endBalance = slice[slice.length - 1].endBalanceCents;
+    const endBalance = slice[slice.length - 1].freeBalanceCents;
     const startMonth = q;
     const endMonth = Math.min(ledger.length - 1, q + 2);
 

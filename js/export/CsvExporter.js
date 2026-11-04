@@ -23,19 +23,20 @@ export class CsvExporter {
         escapeCsv(PRIORITY_LABELS[item.priority] || item.priority),
         escapeCsv(SCOPE_LABELS[item.scope] || item.scope),
         escapeCsv(STATUS_LABELS[item.status] || item.status),
-        formatNumberBrl((item.basePriceCents || 0) / 100),
+        item.priceKnown === false ? '' : formatNumberBrl((item.basePriceCents || 0) / 100),
         formatNumberBrl((item.shippingCents || 0) / 100),
         formatNumberBrl((item.assemblyCents || 0) / 100),
         formatNumberBrl((item.installationCents || 0) / 100),
         formatNumberBrl((item.additionalCostsCents || 0) / 100),
-        formatNumberBrl((item.totalInstalledCostCents || 0) / 100),
+        item.priceKnown === false ? '' : formatNumberBrl((item.totalInstalledCostCents || 0) / 100),
         `Mes ${item.deliveryMonthIndex !== undefined ? item.deliveryMonthIndex : 'N/A'}`,
         escapeCsv(item.supplier || '')
       ];
       lines.push(row.join(';'));
     });
 
-    downloadCsvFile(lines.join('\r\n'), `Itens_Ape_${sanitizeFileName(project.name)}.csv`);
+    const demoPrefix = project.isDemonstration ? 'Demonstracao_Ficticia_' : '';
+    downloadCsvFile(lines.join('\r\n'), `${demoPrefix}Itens_Ape_${sanitizeFileName(project.name)}.csv`);
   }
 
   /**
@@ -44,7 +45,8 @@ export class CsvExporter {
   static exportLedgerCsv(project, result) {
     const headers = [
       'Mes', 'Marco', 'SaldoInicial_BRL', 'AporteMaximo_BRL', 'AportePlanejado_BRL',
-      'EntradasExtras_BRL', 'Rendimentos_BRL', 'PagamentosProjeto_BRL', 'SaldoFinalFundo_BRL', 'DeficitOrcamentoFamiliar_BRL'
+      'EntradasExtras_BRL', 'Rendimentos_BRL', 'PagamentosProjeto_BRL',
+      'SaldoFinalFundo_BRL', 'SaldoLivreAposContingencia_BRL', 'DeficitOrcamentoFamiliar_BRL'
     ];
 
     const lines = [headers.join(';')];
@@ -65,18 +67,22 @@ export class CsvExporter {
         formatNumberBrl(row.yieldCents / 100),
         formatNumberBrl(row.paymentsThisMonthCents / 100),
         formatNumberBrl(row.endBalanceCents / 100),
+        formatNumberBrl(row.freeBalanceCents / 100),
         formatNumberBrl(row.familyBudgetDeficitCents / 100)
       ];
       lines.push(line.join(';'));
     });
 
-    downloadCsvFile(lines.join('\r\n'), `Fluxo_Mensal_Ape_${sanitizeFileName(project.name)}.csv`);
+    const demoPrefix = project.isDemonstration ? 'Demonstracao_Ficticia_' : '';
+    downloadCsvFile(lines.join('\r\n'), `${demoPrefix}Fluxo_Mensal_Ape_${sanitizeFileName(project.name)}.csv`);
   }
 }
 
 function escapeCsv(str) {
-  if (!str) return '""';
-  const clean = String(str).replace(/"/g, '""');
+  if (str === null || str === undefined || str === '') return '""';
+  const value = String(str);
+  const safe = /^[\s]*[=+\-@]/.test(value) ? `'${value}` : value;
+  const clean = safe.replace(/"/g, '""');
   return `"${clean}"`;
 }
 

@@ -1,35 +1,39 @@
 import { FinancialEngine } from './FinancialEngine.js';
-import { VIABILITY_STATUS, VIABILITY_LABELS } from './ScenarioEngine.js';
-import { SCOPE_OPTIONS, PRIORITY_OPTIONS, STRATEGY_OPTIONS, STRATEGY_LABELS } from '../models/types.js';
+import { ScenarioEngine, VIABILITY_STATUS, VIABILITY_LABELS } from './ScenarioEngine.js';
 
 export class Recommender {
   /**
    * Gera o diagnóstico completo com a recomendação principal e até 3 propostas de mudança.
    */
   static analyze(project, financialResult, scenarios) {
-    const viability = financialResult ? financialResult.status || this.getViabilityFromResult(financialResult) : VIABILITY_STATUS.INSUFFICIENT_DATA;
+    const viability = financialResult
+      ? financialResult.viability || ScenarioEngine.evaluateViability(financialResult, project)
+      : { status: VIABILITY_STATUS.INSUFFICIENT_DATA, reasons: [], missingFields: [] };
+    const viabilityStatus = typeof viability === 'string' ? viability : viability.status;
 
     const recommendation = {
-      viabilityStatus: viability,
-      viabilityLabel: VIABILITY_LABELS[viability],
+      viability,
+      viabilityStatus,
+      viabilityLabel: VIABILITY_LABELS[viabilityStatus],
       headline: '',
       summaryText: '',
       actionableChanges: [],
       riskAnalysis: this.runRiskAnalysis(project, financialResult)
     };
 
-    if (viability === VIABILITY_STATUS.VIABLE) {
-      recommendation.headline = 'Seu plano financeiro é viável e atinge o objetivo com segurança!';
-      recommendation.summaryText = `Com os aportes previstos e seu saldo acumulado, você conseguirá cobrir R$ ${(financialResult.totalIncludedCostCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em compras até a data da mudança sem gerar déficits de caixa.`;
-    } else if (viability === VIABILITY_STATUS.ESSENTIAL_ONLY) {
+    if (viabilityStatus === VIABILITY_STATUS.VIABLE) {
+      recommendation.headline = 'O escopo informado é compatível com os dados do planejamento.';
+      recommendation.summaryText = `Com os aportes e pagamentos previstos, os R$ ${(financialResult.totalIncludedCostCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} do escopo cabem no caixa projetado. Valores estimados e compromissos posteriores continuam sujeitos às premissas informadas.`;
+    } else if (viabilityStatus === VIABILITY_STATUS.ESSENTIAL_ONLY) {
       recommendation.headline = 'Seu orçamento cobre 100% do escopo essencial para a mudança.';
       recommendation.summaryText = 'Os itens indispensáveis (cozinha, cama, banheiros) cabem no fluxo de caixa. Recomendamos manter itens opcionais com compra agendada para pós-mudança.';
-    } else if (viability === VIABILITY_STATUS.REQUIRES_ADJUSTMENTS) {
+    } else if (viabilityStatus === VIABILITY_STATUS.REQUIRES_ADJUSTMENTS) {
       recommendation.headline = 'Atenção: Seu plano apresenta meses com déficit de caixa ou prazos apertados.';
       if (financialResult.firstDeficitMonth !== null) {
-        const monthNum = financialResult.firstDeficitMonth;
-        const deficitVal = (financialResult.maxDeficitCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-        recommendation.summaryText = `No mês ${monthNum}, haverá um déficit de R$ ${deficitVal} no fundo do projeto (geralmente provocado por pagamentos de sinal ou compras concentradas). Veja as sugestões de ajuste abaixo.`;
+        const monthNum = viability.firstDeficitMonth;
+        const deficitVal = (viability.firstDeficitAmountCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+        const worstDeficit = (viability.maxDeficitCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+        recommendation.summaryText = `O primeiro déficit é de R$ ${deficitVal} no mês ${monthNum}. O pior déficit é de R$ ${worstDeficit} no mês ${viability.worstDeficitMonth}. Verifique as propostas antes de assumir mudanças.`;
       } else if (!financialResult.essentialItemsReadyBeforeMove) {
         recommendation.summaryText = 'Um ou mais itens essenciais estão com prazo de entrega previsto para APÓS a data de mudança desejada.';
       } else {
@@ -37,7 +41,8 @@ export class Recommender {
       }
     } else {
       recommendation.headline = 'Análise preliminar em andamento.';
-      recommendation.summaryText = 'Preencha os valores estimados dos itens e seu orçamento na Etapa 2 para obter um diagnóstico financeiro completo.';
+      const missingLabels = viability.missingFieldLabels || [];
+      recommendation.summaryText = `Ainda faltam informações para concluir. ${missingLabels.length ? `Informe: ${missingLabels.join('; ')}.` : 'Inclua o orçamento e os itens que pretende avaliar.'}`;
     }
 
     // Gerar até 3 mudanças prioritárias de escopo ou estratégia
@@ -50,85 +55,14 @@ export class Recommender {
    * Determina a viabilidade a partir do resultado financeiro.
    */
   static getViabilityFromResult(result) {
-    if (!result || !result.processedItems || result.processedItems.length === 0) {
-      return VIABILITY_STATUS.INSUFFICIENT_DATA;
-    }
-    if (result.firstDeficitMonth !== null || !result.essentialItemsReadyBeforeMove || result.hasFamilyBudgetDeficit) {
-      return VIABILITY_STATUS.REQUIRES_ADJUSTMENTS;
-    }
-    return VIABILITY_STATUS.VIABLE;
+    return ScenarioEngine.evaluateViability(result).status;
   }
 
   /**
    * Gera até 3 propostas de mudança concretas para otimizar o plano.
    */
   static generatePriorityChanges(project, result) {
-    if (!result || !result.processedItems) return [];
-
-    const changes = [];
-    const items = result.processedItems;
-
-    // Proposta 1: Adiar itens Opcionais ou Importantes não essenciais que estão incluídos
-    const optionalIncluded = items.filter(
-      i => i.priority === PRIORITY_OPTIONS.OPTIONAL && i.scope === SCOPE_OPTIONS.INCLUDE
-    );
-
-    if (optionalIncluded.length > 0) {
-      const target = optionalIncluded[0];
-      const savingsCents = target.totalInstalledCostCents;
-      changes.push({
-        title: `Adiar item opcional: ${target.name}`,
-        whatToChange: `Alterar o escopo de "${target.name}" no ${getRoomName(project, target.roomId)} de "Incluir no plano" para "Adiar pós-mudança".`,
-        estimatedSavingsCents: savingsCents,
-        formattedSavings: `R$ ${(savingsCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
-        effectOnCriticalMonth: `Reduz a necessidade de caixa em R$ ${(savingsCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} antes da mudança.`,
-        tradeOff: 'Menos conforto decorativo imediato no primeiro mês pós-mudança.',
-        conditions: 'Item pode ser adquirido em até 6 a 12 meses após estar morando no imóvel.'
-      });
-    }
-
-    // Proposta 2: Substituir Marcenaria Sob Medida por Móveis Modulados em ambientes secundários
-    const customWoodworkItems = items.filter(
-      i => i.strategy === STRATEGY_OPTIONS.CUSTOM_WOODWORK && i.scope === SCOPE_OPTIONS.INCLUDE
-    );
-
-    if (customWoodworkItems.length > 0) {
-      // Priorizar ambiente secundário (sala, quarto 2) antes da cozinha
-      const secondaryCustomItem = customWoodworkItems.find(i => i.roomId !== 'room_cozinha') || customWoodworkItems[0];
-      const approxSavingsCents = Math.round(secondaryCustomItem.totalInstalledCostCents * 0.30);
-
-      changes.push({
-        title: `Trocar Marcenaria por Modulados: ${secondaryCustomItem.name}`,
-        whatToChange: `Mudar a estratégia de "${secondaryCustomItem.name}" de "Marcenaria sob medida" para "Móveis modulados".`,
-        estimatedSavingsCents: approxSavingsCents,
-        formattedSavings: `Economia aprox. de R$ ${(approxSavingsCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
-        effectOnCriticalMonth: `Diminui o valor do sinal inicial e alivia os meses críticos de pagamento.`,
-        tradeOff: 'Acabamento padrão com folgas nas laterais (sem ajuste sob medida perfeito nas paredes).',
-        conditions: 'Requer medir com precisão a parede para escolher o módulo pronto compatível.'
-      });
-    }
-
-    // Proposta 3: Ajustar parcelamento do Sinal de itens contratados ou de maior valor
-    if (result.firstDeficitMonth !== null) {
-      const deficitMonth = result.firstDeficitMonth;
-      const ledgerEntry = result.monthlyLedger[deficitMonth];
-
-      if (ledgerEntry && ledgerEntry.paymentDetails && ledgerEntry.paymentDetails.length > 0) {
-        const depositPayment = ledgerEntry.paymentDetails.find(p => p.isDeposit) || ledgerEntry.paymentDetails[0];
-
-        changes.push({
-          title: `Renegociar Sinal ou Parcelamento do Mês ${deficitMonth}`,
-          whatToChange: `Solicitar divisão do sinal de R$ ${(depositPayment.amountCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (referente a ${depositPayment.itemName}) em 2 ou 3 vezes.`,
-          estimatedSavingsCents: Math.round(depositPayment.amountCents * 0.5),
-          formattedSavings: `Alívio imediato no Mês ${deficitMonth}`,
-          effectOnCriticalMonth: `Elimina o déficit de R$ ${(result.maxDeficitCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} registrado no Mês ${deficitMonth}.`,
-          tradeOff: 'Pode exigir negociação direta com o fornecedor da marcenaria.',
-          conditions: 'Válido para orçamentos em fase de negociação antes da assinatura final.'
-        });
-      }
-    }
-
-    return changes.slice(0, 3);
+    return [];
   }
 
   /**
@@ -137,20 +71,22 @@ export class Recommender {
   static runRiskAnalysis(project, baseResult) {
     if (!baseResult) return [];
 
-    // 1. Imprevisto: Inflação / Aumento de Preços +15% nos itens não contratados
-    const priceSurgeResult = FinancialEngine.calculate(project, {
-      assumptions: {
-        annualInflationRate: (project.assumptions.annualInflationRate || 0) + 0.15,
-        applyInflationToUncontracted: true
-      }
-    });
+    // Choque único de 15% é separado da inflação anual configurada.
+    const priceSurgeResult = FinancialEngine.calculate(this.applyOneTimePriceShock(project, 0.15));
 
     // 2. Imprevisto: Atraso das chaves em +6 meses
     const delayedKeysProject = JSON.parse(JSON.stringify(project));
     if (delayedKeysProject.apartment.keysDate) {
-      const d = new Date(delayedKeysProject.apartment.keysDate);
-      d.setMonth(d.getMonth() + 6);
-      delayedKeysProject.apartment.keysDate = d.toISOString().split('T')[0];
+      delayedKeysProject.apartment.keysDate = this.shiftDateByMonths(
+        delayedKeysProject.apartment.keysDate,
+        6
+      );
+      if (delayedKeysProject.apartment.moveDate) {
+        delayedKeysProject.apartment.moveDate = this.shiftDateByMonths(
+          delayedKeysProject.apartment.moveDate,
+          6
+        );
+      }
     }
     const delayedKeysResult = FinancialEngine.calculate(delayedKeysProject);
 
@@ -170,7 +106,7 @@ export class Recommender {
     return [
       {
         id: 'risk_price_surge',
-        name: 'Aumento de Preços (+15% no mercado)',
+        name: 'Hipótese: choque único de preços (+15%)',
         impactText: priceSurgeResult.firstDeficitMonth !== null
           ? `Gera déficit no Mês ${priceSurgeResult.firstDeficitMonth} (R$ ${(priceSurgeResult.maxDeficitCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`
           : 'Plano continua viável mesmo com aumento de 15%.',
@@ -197,9 +133,38 @@ export class Recommender {
       }
     ];
   }
-}
 
-function getRoomName(project, roomId) {
-  const r = (project.apartment.rooms || []).find(room => room.id === roomId);
-  return r ? r.name : 'Ambiente';
+  static applyOneTimePriceShock(project, shockRate) {
+    if (!Number.isFinite(shockRate) || shockRate < 0) {
+      throw new Error('O choque de preço deve ser uma taxa não negativa.');
+    }
+    return {
+      ...project,
+      items: (project.items || []).map(item => {
+        const isFirm = item.status === 'contracted' || item.status === 'paid_partial' ||
+          item.status === 'bought' || item.status === 'delivered' || item.status === 'installed';
+        if (isFirm) return { ...item };
+        const shocked = { ...item };
+        ['basePriceCents', 'shippingCents', 'assemblyCents', 'installationCents', 'additionalCostsCents']
+          .forEach(field => {
+            if (Number.isSafeInteger(item[field])) {
+              shocked[field] = Math.round(item[field] * (1 + shockRate));
+            }
+          });
+        return shocked;
+      })
+    };
+  }
+
+  static shiftDateByMonths(dateString, monthDelta) {
+    const [year, month, day] = dateString.split('-').map(Number);
+    const shiftedMonth = new Date(Date.UTC(year, month - 1 + monthDelta, 1));
+    const lastDay = new Date(Date.UTC(
+      shiftedMonth.getUTCFullYear(),
+      shiftedMonth.getUTCMonth() + 1,
+      0
+    )).getUTCDate();
+    shiftedMonth.setUTCDate(Math.min(day, lastDay));
+    return shiftedMonth.toISOString().slice(0, 10);
+  }
 }

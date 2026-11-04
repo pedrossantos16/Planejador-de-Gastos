@@ -74,18 +74,20 @@ export const STATUS_LABELS = {
  * Cria um objeto de Projeto padrão
  */
 export function createDefaultProject() {
+  const baseDate = new Date().toISOString().slice(0, 10);
   return {
     id: 'proj_' + Date.now(),
     name: 'Meu Apê Planejado',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     schemaVersion: '1.0',
+    baseDate,
 
     // Configurações do Apartamento e Prazos
     apartment: {
       cityState: '',
       zipCode: '',
-      approxAreaM2: 55,
+      approxAreaM2: null,
       rooms: [
         { id: 'room_cozinha', name: 'Cozinha & Área de Serviço', type: 'kitchen' },
         { id: 'room_sala', name: 'Sala de Estar / Jantar', type: 'living' },
@@ -94,19 +96,19 @@ export function createDefaultProject() {
         { id: 'room_banheiro', name: 'Banheiro Social', type: 'bathroom' },
         { id: 'room_varanda', name: 'Varanda / Sacada', type: 'balcony' }
       ],
-      residentsCount: 2,
-      isHomeOffice: true,
+      residentsCount: null,
+      isHomeOffice: false,
       hasChildren: false,
       hasPets: false,
       accessibilityNeeds: false,
-      keysDate: getDefaultKeysDate(),   // Ex: 36 meses no futuro
-      moveDate: getDefaultMoveDate(),   // Ex: 37 meses no futuro
+      keysDate: '',
+      moveDate: '',
       deliveredItems: {
         flooring: false,
-        wallTiles: true,
-        countertops: true,
+        wallTiles: false,
+        countertops: false,
         lighting: false,
-        sanitary: true
+        sanitary: false
       },
       restrictions: '',
       notes: ''
@@ -118,25 +120,26 @@ export function createDefaultProject() {
 
       // Modo Simplificado
       simplified: {
-        initialBalanceCents: 1000000, // R$ 10.000,00 por padrão em centavos
-        monthlyCapCents: 150000,      // R$ 1.500,00 por mês
+        initialBalanceCents: null,
+        monthlyCapCents: null,
         extraIncomes: [],             // [{ id, name, amountCents, monthIndex }]
         atypicalMonths: {}           // { [monthIndex]: amountCents }
       },
 
       // Modo Detalhado
       detailed: {
-        netMonthlyIncomeCents: 800000,       // R$ 8.000,00
-        fixedLivingExpensesCents: 300000,   // R$ 3.000,00
-        variableLivingExpensesCents: 100000,// R$ 1.000,00
-        propertyInstallmentCents: 150000,   // R$ 1.500,00 (parcela apê)
-        otherDebtsCents: 0,
-        emergencyReserveCents: 1000000,     // R$ 10.000,00 (Protegida)
-        safetyMarginCents: 50000,           // R$ 500,00
-        monthlyCapCents: 200000,            // R$ 2.000,00 teto autorizado
+        initialBalanceCents: null,
+        netMonthlyIncomeCents: null,
+        fixedLivingExpensesCents: null,
+        variableLivingExpensesCents: null,
+        propertyInstallmentCents: null,
+        otherDebtsCents: null,
+        emergencyReserveCents: null,
+        safetyMarginCents: null,
+        monthlyCapCents: null,
         extraIncomes: [],
         atypicalMonths: {},
-        postMoveExpensesCents: 80000        // Condomínio, IPTU após as chaves
+        postMoveExpensesCents: null
       }
     },
 
@@ -145,7 +148,7 @@ export function createDefaultProject() {
       annualInflationRate: 0.0,       // 0% por padrão, configurável (ex: 0.06 = 6% a.a.)
       applyInflationToUncontracted: true,
       yieldRateAnnual: 0.0,           // Rendimentos do fundo (padrão 0%)
-      contingencyPercent: 0.05        // 5% de reserva para imprevistos
+      contingencyPercent: 0
     },
 
     // Lista de Itens por Ambiente
@@ -154,22 +157,4 @@ export function createDefaultProject() {
     // Histórico de Compras/Pagamentos Efetivados
     paidHistory: []
   };
-}
-
-/**
- * Data padrão de entrega das chaves (36 meses a partir de hoje)
- */
-function getDefaultKeysDate() {
-  const d = new Date();
-  d.setMonth(d.getMonth() + 36);
-  return d.toISOString().split('T')[0];
-}
-
-/**
- * Data padrão de mudança (37 meses a partir de hoje)
- */
-function getDefaultMoveDate() {
-  const d = new Date();
-  d.setMonth(d.getMonth() + 37);
-  return d.toISOString().split('T')[0];
 }
