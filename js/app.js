@@ -12,6 +12,9 @@ import { PdfExporter } from './export/PdfExporter.js';
 import { CsvExporter } from './export/CsvExporter.js';
 import { getDemoViableProject, getDemoInviableProject, getDemoIncompleteProject } from './models/defaultData.js';
 import { createDefaultProject } from './models/types.js';
+import {
+  CONTINGENCY_RULE, CONTINGENCY_RULE_LABELS, RULE_SCHEMA_VERSION
+} from './models/contingencyRules.js';
 
 class App {
   constructor() {
@@ -136,16 +139,7 @@ class App {
   bindHeaderEvents() {
     const btnContingency = document.getElementById('btnConfirmContingencyRule');
     if (btnContingency) {
-      btnContingency.addEventListener('click', () => {
-        this.formsUI.readForms(this.project);
-        if (!this.project.assumptions.contingencyTargetDate) {
-          alert('Informe a data-alvo da contingência antes de adotar a nova regra.');
-          return;
-        }
-        if (!confirm('Adotar a regra com data-alvo? A reserva deixa de ser exigida integralmente desde o primeiro desembolso e o resultado financeiro pode mudar.')) return;
-        this.project.assumptions.contingencyMode = 'target';
-        this.handleDataChange();
-      });
+      btnContingency.addEventListener('click', () => this.migrateContingencyRule());
     }
     // Seletor de Demos
     const demoSelect = document.getElementById('demoSelector');
@@ -321,11 +315,48 @@ class App {
     fragment.appendChild(base);
     container.replaceChildren(fragment);
     this.renderContingencyStatus(result);
-    if (result.settlementReview?.length) {
-      const review = document.createElement('p');
-      review.textContent = `Compras declaradas como pagas sem histórico (data não informada), a confirmar: ${result.settlementReview.map(item => item.name).join(', ')}.`;
-      container.appendChild(review);
+  }
+
+  summarizeOutcome(result) {
+    const fmt = cents => `R$ ${(cents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+    const c = result.contingency;
+    return [
+      `Diagnóstico: ${result.viability.label}`,
+      `Déficit de caixa: ${result.firstDeficitMonth === null ? 'nenhum' : `a partir do mês ${result.firstDeficitMonth}`}`,
+      `Reserva de ${fmt(c.protectedCents)}: ${c.firstReserveShortfallMonth === null ? 'sem insuficiência identificada após a exigência' : `insuficiente a partir do mês ${c.firstReserveShortfallMonth}`}`,
+      `Saldo livre final: ${fmt(result.finalFreeBalanceCents)}`
+    ].join('\n  ');
+  }
+
+  migrateContingencyRule() {
+    this.formsUI.readForms(this.project);
+    const assumptions = this.project.assumptions;
+    if (!assumptions.contingencyTargetDate) {
+      alert('Informe a data-alvo da contingência antes de adotar a nova regra.');
+      return;
     }
+    if (!this.financialResult) {
+      alert('Corrija os dados do planejamento para comparar o antes e o depois da migração.');
+      return;
+    }
+    const candidate = {
+      ...this.project,
+      assumptions: { ...assumptions, contingencyRule: CONTINGENCY_RULE.TARGET, contingencyRuleConfirmed: true }
+    };
+    let after;
+    try {
+      after = FinancialEngine.calculate(candidate);
+      after.viability = ScenarioEngine.evaluateViability(after, candidate);
+    } catch (error) {
+      alert(`Não foi possível simular a nova regra: ${error.message}`);
+      return;
+    }
+    const message = `Migrar para a regra com data-alvo (${assumptions.contingencyTargetDate})?\n\nANTES (${CONTINGENCY_RULE_LABELS[this.financialResult.contingency.rule]}):\n  ${this.summarizeOutcome(this.financialResult)}\n\nDEPOIS:\n  ${this.summarizeOutcome(after)}`;
+    if (!confirm(message)) return;
+    assumptions.contingencyRule = CONTINGENCY_RULE.TARGET;
+    assumptions.contingencyRuleConfirmed = true;
+    assumptions.ruleSchemaVersion = RULE_SCHEMA_VERSION;
+    this.handleDataChange();
   }
 
   renderContingencyStatus(result) {
@@ -335,10 +366,10 @@ class App {
     const c = result.contingency;
     const fmt = cents => `R$ ${(cents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
     let text;
-    if (c.protectedCents === 0) {
+    if (c.percent === 0) {
       text = 'Sem contingência configurada.';
     } else if (c.mode === 'legacy') {
-      text = `Regra anterior ativa: a reserva de ${fmt(c.protectedCents)} é exigida integralmente desde o primeiro desembolso. Informe a data-alvo e adote a nova regra para planejar a formação progressiva.`;
+      text = `${CONTINGENCY_RULE_LABELS[c.rule]}. Reserva: ${fmt(c.protectedCents)}.${c.ruleNeedsReview ? ' Este projeto foi salvo sem a versão da regra; revise e confirme a migração.' : ''} Informe a data-alvo e adote a regra com data-alvo para planejar a formação progressiva.`;
     } else if (c.targetMonth === null) {
       text = 'Informe a data-alvo para avaliar a formação da reserva.';
     } else {
@@ -351,7 +382,7 @@ class App {
       }
     }
     box.textContent = text;
-    if (button) button.hidden = c.mode !== 'legacy' || c.protectedCents === 0;
+    if (button) button.hidden = c.mode !== 'legacy' || c.percent === 0;
   }
 
   exportPreviousProjectBackup() {

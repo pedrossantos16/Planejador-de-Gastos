@@ -2,6 +2,9 @@ import {
   SCOPE_OPTIONS, PRIORITY_OPTIONS, STATUS_OPTIONS, FIRM_STATUSES, SETTLED_STATUSES
 } from '../models/types.js';
 import { needsSettlementConfirmation, SETTLEMENT_ORIGIN, PAYMENT_SOURCE } from '../models/payments.js';
+import {
+  CONTINGENCY_RULE, resolveContingencyRule, contingencyRuleNeedsReview
+} from '../models/contingencyRules.js';
 
 const MAX_PROJECTION_MONTHS = 1200;
 
@@ -42,7 +45,8 @@ export class FinancialEngine {
     if (keysDate && moveDate && moveDate < keysDate) {
       throw new Error('A mudança não pode estar prevista antes da entrega das chaves.');
     }
-    const contingencyMode = assumptions.contingencyMode === 'target' ? 'target' : 'legacy';
+    const contingencyRule = resolveContingencyRule(assumptions);
+    const contingencyMode = contingencyRule === CONTINGENCY_RULE.TARGET ? 'target' : 'legacy';
     const contingencyTargetDate = contingencyMode === 'target' ? (assumptions.contingencyTargetDate || '') : '';
     if (contingencyTargetDate && !isValidDate(contingencyTargetDate)) {
       throw new Error('A data-alvo da contingência é inválida.');
@@ -136,7 +140,7 @@ export class FinancialEngine {
     const firstPaymentMonth = monthlyProjectPayments.findIndex(amount => amount > 0);
     const contingencyStartMonth = contingencyMode === 'target'
       ? targetMonth
-      : (firstPaymentMonth === -1 ? 0 : firstPaymentMonth);
+      : (contingencyRule === CONTINGENCY_RULE.MONTH_ZERO || firstPaymentMonth === -1 ? 0 : firstPaymentMonth);
     let firstReserveShortfallMonth = null;
     let worstReserveShortfallMonth = null;
     let maxReserveShortfallCents = 0;
@@ -261,6 +265,12 @@ export class FinancialEngine {
       }
     });
 
+    // Quitação não confirmada pode ser uma saída futura: a conclusão fica preliminar.
+    const settlementReview = processedItems
+      .filter(item => item.scope === SCOPE_OPTIONS.INCLUDE && needsSettlementConfirmation(item))
+      .map(item => ({ id: item.id, name: item.name, amountCents: item.basePriceCents }));
+    settlementReview.forEach(entry => missingFields.push(`settlement:${entry.id}`));
+
     const postMoveStart = monthsToMove === null ? horizonMonths + 1 : monthsToMove + 1;
     const postMoveLiabilitiesCents = monthlyProjectPayments
       .slice(postMoveStart)
@@ -296,6 +306,8 @@ export class FinancialEngine {
       hasCompleteData: missingFields.length === 0,
       contingency: {
         mode: contingencyMode,
+        rule: contingencyRule,
+        ruleNeedsReview: contingencyRuleNeedsReview(assumptions),
         percent: assumptions.contingencyPercent ?? 0,
         protectedCents: contingencyProtectedCents,
         targetDate: contingencyTargetDate || null,
@@ -310,8 +322,7 @@ export class FinancialEngine {
         worstReserveShortfallMonth,
         maxReserveShortfallCents
       },
-      settlementReview: processedItems.filter(needsSettlementConfirmation)
-        .map(item => ({ id: item.id, name: item.name })),
+      settlementReview,
       isAudited: false
     };
   }

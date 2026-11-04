@@ -154,7 +154,9 @@ export function createDefaultProject() {
       applyInflationToUncontracted: true,
       yieldRateAnnual: 0.0,           // Rendimentos do fundo (padrão 0%)
       contingencyPercent: 0,
-      contingencyMode: 'target',      // 'legacy' = reserva integral desde o primeiro desembolso (projetos migrados)
+      ruleSchemaVersion: 2,
+      contingencyRule: 'target',      // month_zero | first_disbursement | target (ver contingencyRules.js)
+      contingencyRuleConfirmed: true,
       contingencyTargetDate: ''
     },
 
