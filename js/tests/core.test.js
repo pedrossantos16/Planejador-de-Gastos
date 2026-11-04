@@ -7,6 +7,7 @@ import { Recommender } from '../engine/Recommender.js';
 import { ScenarioEngine } from '../engine/ScenarioEngine.js';
 import { StorageManager } from '../storage/StorageManager.js';
 import { mergeItemEdit } from '../ui/ItemsUI.js';
+import { planDeliveryShift } from '../models/payments.js';
 
 function projectWithBaseDate() {
   const project = createDefaultProject();
@@ -239,6 +240,7 @@ test('cenário de atraso desloca a mudança com segurança para depois das chave
 test('contingência zero permanece zero e a parcela protegida reduz o saldo livre', () => {
   const project = projectWithBaseDate();
   setSimpleBudget(project, 2_000_000, 0);
+  project.assumptions.contingencyMode = 'legacy';
   project.assumptions.contingencyPercent = 0;
   project.items = [{
     id: 'item-reserva',
@@ -371,6 +373,7 @@ test('mudança no mesmo mês, mas antes das chaves, é rejeitada', () => {
 test('contingência é exigida a partir do primeiro desembolso, não do mês zero', () => {
   const project = projectWithBaseDate();
   setSimpleBudget(project, 0, 100_000);
+  project.assumptions.contingencyMode = 'legacy';
   project.assumptions.contingencyPercent = 0.1;
   project.items = [boughtItem({
     basePriceCents: 1_000_000, shippingCents: 0, deliveryMonthIndex: 36
@@ -403,4 +406,170 @@ test('painel de riscos não aprova plano com dados insuficientes', () => {
   const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
   const risks = Recommender.runRiskAnalysis(project, result);
   assert.ok(risks.every(risk => risk.isViable === null));
+});
+
+function formUpdates(overrides = {}) {
+  return {
+    id: 'item-form', roomId: 'r1', name: 'Sofá', priority: PRIORITY_OPTIONS.ESSENTIAL,
+    scope: SCOPE_OPTIONS.INCLUDE, strategy: 'balanced', status: STATUS_OPTIONS.QUOTED,
+    basePriceCents: 120_000, shippingCents: 0, installationTotalCents: 0, deliveryMonthIndex: 10,
+    ...overrides
+  };
+}
+
+function itemWithPayments(payments) {
+  return boughtItem({
+    basePriceCents: 120_000, shippingCents: 0, deliveryMonthIndex: 5,
+    status: STATUS_OPTIONS.CONTRACTED, payments
+  });
+}
+
+test('mudança de entrega desloca somente pagamento pendente vinculado, com confirmação', () => {
+  const existing = itemWithPayments([
+    { amountCents: 50_000, monthIndex: 5, isPaid: false, linkedToDelivery: true },
+    { amountCents: 70_000, monthIndex: 5, isPaid: false, linkedToDelivery: true }
+  ]);
+  const declined = mergeItemEdit(existing, formUpdates(), {}, {});
+  assert.deepEqual(declined.payments.map(p => p.monthIndex), [5, 5]);
+  const shifted = mergeItemEdit(existing, formUpdates(), {}, { shiftLinkedPayments: true });
+  assert.deepEqual(shifted.payments.map(p => p.monthIndex), [10, 10]);
+});
+
+test('parcela negociada independente da entrega e dado antigo sem vínculo não são deslocados', () => {
+  const existing = itemWithPayments([
+    { amountCents: 40_000, monthIndex: 5, isPaid: false, linkedToDelivery: true },
+    { amountCents: 40_000, monthIndex: 8, isPaid: false, linkedToDelivery: false },
+    { amountCents: 40_000, monthIndex: 6, isPaid: false }
+  ]);
+  const plan = planDeliveryShift(existing, 10);
+  assert.equal(plan.shiftable.length, 1);
+  assert.equal(plan.independentCount, 1);
+  assert.equal(plan.unlinkedCount, 1);
+  const shifted = mergeItemEdit(existing, formUpdates(), {}, { shiftLinkedPayments: true });
+  assert.deepEqual(shifted.payments.map(p => p.monthIndex), [10, 8, 6]);
+});
+
+test('pagamento realizado permanece inalterado ao mudar a entrega', () => {
+  const existing = itemWithPayments([
+    { amountCents: 20_000, monthIndex: 1, isPaid: true, linkedToDelivery: true },
+    { amountCents: 100_000, monthIndex: 5, isPaid: false, linkedToDelivery: true }
+  ]);
+  const shifted = mergeItemEdit(existing, formUpdates(), {}, { shiftLinkedPayments: true });
+  assert.equal(shifted.payments[0].monthIndex, 1);
+  assert.equal(shifted.payments[0].isPaid, true);
+  assert.equal(shifted.payments[1].monthIndex, 10);
+});
+
+function contingencyProject(initialCents, capCents, items) {
+  const project = projectWithBaseDate();
+  setSimpleBudget(project, initialCents, capCents);
+  project.assumptions.contingencyMode = 'target';
+  project.assumptions.contingencyPercent = 0.1;
+  project.assumptions.contingencyTargetDate = '2028-01-15';
+  project.items = items;
+  return project;
+}
+
+function scheduledItem(id, amountCents, month) {
+  return boughtItem({
+    id, name: id, basePriceCents: amountCents, shippingCents: 0, deliveryMonthIndex: month,
+    status: STATUS_OPTIONS.CONTRACTED,
+    payments: [{ amountCents, monthIndex: month, isPaid: false }]
+  });
+}
+
+test('compra pequena antecipada não antecipa a data-alvo da contingência', () => {
+  const project = contingencyProject(60_000, 10_000, [scheduledItem('pequena', 50_000, 2)]);
+  const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  assert.equal(result.contingency.targetMonth, 24);
+  assert.equal(result.contingencyStartMonth, 24);
+  assert.equal(result.monthlyLedger[2].contingencyProtectedCents, 0);
+  assert.equal(result.monthlyLedger[2].freeBalanceCents, result.monthlyLedger[2].endBalanceCents);
+  assert.equal(result.firstDeficitMonth, null);
+});
+
+test('reserva insuficiente na data-alvo difere de déficit de caixa', () => {
+  const project = contingencyProject(100_000, 0, [scheduledItem('sinal', 100_000, 3)]);
+  const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  assert.equal(result.firstDeficitMonth, null);
+  assert.equal(result.contingency.sufficientAtTarget, false);
+  assert.equal(result.contingency.shortfallAtTargetCents, 10_000);
+  assert.equal(result.contingency.firstReserveShortfallMonth, 24);
+  const viability = ScenarioEngine.evaluateViability(result, project);
+  assert.equal(viability.status, 'requires_adjustments');
+  assert.equal(viability.firstReserveShortfallMonth, 24);
+});
+
+test('déficit de caixa antes da data-alvo é reportado como déficit, não como falta de reserva', () => {
+  const project = contingencyProject(0, 10_000, [scheduledItem('sinal', 100_000, 3)]);
+  const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  assert.equal(result.firstDeficitMonth, 3);
+  assert.equal(result.monthlyLedger[3].deficitCents, 70_000);
+  assert.equal(result.contingency.firstReserveShortfallMonth, null);
+  assert.equal(result.contingency.sufficientAtTarget, true);
+  assert.equal(ScenarioEngine.evaluateViability(result, project).firstDeficitAmountCents, 70_000);
+});
+
+test('contingência continua parte protegida do saldo, não uma despesa adicional', () => {
+  const project = contingencyProject(100_000, 0, [scheduledItem('sinal', 100_000, 3)]);
+  const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  assert.equal(result.monthlyLedger[24].paymentsThisMonthCents, 0);
+  assert.equal(result.finalBalanceCents, 0);
+});
+
+test('salvar de novo um item comprado não duplica a quitação nem o pendente acessório', () => {
+  const existing = boughtItem({ basePriceCents: 100_000, shippingCents: 10_000, deliveryMonthIndex: 5 });
+  const bought = formUpdates({
+    id: existing.id, basePriceCents: 100_000, shippingCents: 10_000,
+    deliveryMonthIndex: 5, status: STATUS_OPTIONS.BOUGHT
+  });
+  const first = mergeItemEdit(existing, bought, {}, {});
+  const second = mergeItemEdit(first, bought, {}, { confirmSettlement: true });
+  const third = mergeItemEdit(second, bought, {}, {});
+  const paid = third.payments.filter(p => p.isPaid);
+  assert.equal(paid.length, 1);
+  assert.equal(paid[0].amountCents, 100_000);
+  assert.equal(paid[0].paidDate, null);
+  assert.equal(paid[0].dateUnknown, true);
+  assert.equal(third.payments.filter(p => !p.isPaid).length, 1);
+  assert.equal(third.payments.filter(p => !p.isPaid)[0].amountCents, 10_000);
+});
+
+test('importação de item comprado sem histórico não inventa data e pede confirmação', () => {
+  const project = projectWithBaseDate();
+  setSimpleBudget(project, 1_000_000, 100_000);
+  project.items = [boughtItem({
+    status: STATUS_OPTIONS.BOUGHT, basePriceCents: 100_000, shippingCents: 10_000, payments: []
+  })];
+  const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  const settlement = result.processedItems[0].calculatedPayments.find(p => p.isPaid);
+  assert.equal(settlement.paidDate, null);
+  assert.equal(settlement.origin, 'imported_unconfirmed');
+  assert.equal(result.settlementReview.length, 1);
+  assert.equal(result.monthlyLedger[5].paymentsThisMonthCents, 10_000);
+});
+
+test('migração mantém a regra anterior de contingência até a confirmação do usuário', () => {
+  const project = projectWithBaseDate();
+  setSimpleBudget(project, 0, 100_000);
+  project.assumptions.contingencyPercent = 0.1;
+  project.items = [scheduledItem('compra', 1_000_000, 36)];
+  const before = FinancialEngine.calculate(
+    { ...project, assumptions: { ...project.assumptions, contingencyMode: 'legacy' } },
+    { referenceDate: '2026-01-15' }
+  );
+  const old = JSON.parse(JSON.stringify(project));
+  delete old.assumptions.contingencyMode;
+  delete old.assumptions.contingencyTargetDate;
+  const migrated = StorageManager.migrateAndValidateSchema(old);
+  assert.equal(migrated.assumptions.contingencyMode, 'legacy');
+  const after = FinancialEngine.calculate(migrated, { referenceDate: '2026-01-15' });
+  assert.equal(after.contingencyStartMonth, before.contingencyStartMonth);
+  assert.equal(after.firstDeficitMonth, before.firstDeficitMonth);
+  assert.equal(after.finalFreeBalanceCents, before.finalFreeBalanceCents);
+  assert.equal(after.hasCompleteData, before.hasCompleteData);
+  const confirmed = StorageManager.migrateAndValidateSchema({
+    ...old, assumptions: { ...old.assumptions, contingencyMode: 'target', contingencyTargetDate: '2028-01-15' }
+  });
+  assert.equal(confirmed.assumptions.contingencyMode, 'target');
 });

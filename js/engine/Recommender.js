@@ -34,6 +34,9 @@ export class Recommender {
         const deficitVal = (viability.firstDeficitAmountCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
         const worstDeficit = (viability.maxDeficitCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
         recommendation.summaryText = `O primeiro déficit é de R$ ${deficitVal} no mês ${monthNum}. O pior déficit é de R$ ${worstDeficit} no mês ${viability.worstDeficitMonth}. Verifique as propostas antes de assumir mudanças.`;
+      } else if (viability.firstReserveShortfallMonth != null) {
+        const shortfall = (viability.maxReserveShortfallCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+        recommendation.summaryText = `O caixa não fica negativo, mas a contingência não se mantém formada a partir do mês ${viability.firstReserveShortfallMonth} (falta até R$ ${shortfall}). Reduza gastos, aumente aportes ou ajuste a data-alvo da contingência.`;
       } else if (!financialResult.essentialItemsReadyBeforeMove) {
         recommendation.summaryText = 'Um ou mais itens essenciais estão com prazo de entrega previsto para APÓS a data de mudança desejada.';
       } else if (financialResult.postponedEssentialItems?.length) {

@@ -1,6 +1,10 @@
 import {
   STRATEGY_LABELS, PRIORITY_LABELS, SCOPE_LABELS, STATUS_LABELS, SCOPE_OPTIONS, SETTLED_STATUSES
 } from '../models/types.js';
+import {
+  planDeliveryShift, applyDeliveryShift, needsSettlementConfirmation,
+  buildSettledPayments, refreshAccessoryPending, accessoryTotalCents
+} from '../models/payments.js';
 import { parseMoneyToCents, formatCentsToBrl } from '../models/money.js';
 import { FinancialEngine } from '../engine/FinancialEngine.js';
 
@@ -266,9 +270,21 @@ export class ItemsUI {
       return;
     }
     const newStatus = document.getElementById('modalItemStatus').value;
+    const options = {};
     if (isSettlementTransition(existing, newStatus) && basePriceCents) {
-      const confirmed = confirm(`Marcar como comprado/pago registra R$ ${formatCentsToBrl(basePriceCents)} como valor já pago, que não será debitado novamente do fluxo. Frete, montagem e instalação continuam pendentes. Confirmar?`);
+      const confirmed = confirm(`Marcar como comprado/pago registra R$ ${formatCentsToBrl(basePriceCents)} como valor declarado como já pago (data não informada), que não será debitado novamente do fluxo. Frete, montagem e instalação continuam pendentes. Confirmar?`);
       if (!confirmed) return;
+    } else if (existing && SETTLED_STATUSES.includes(newStatus) &&
+        needsSettlementConfirmation({ ...existing, status: newStatus, basePriceCents, scope: document.getElementById('modalItemScope').value })) {
+      options.confirmSettlement = confirm(`Este item está como comprado, mas não há pagamento registrado para R$ ${formatCentsToBrl(basePriceCents)}. Confirma que esse valor já foi pago? A data do pagamento continuará não informada. Se cancelar, o item mantém o registro atual e continuará marcado como pendente de confirmação.`);
+    }
+    if (existing) {
+      const plan = planDeliveryShift(existing, deliveryMonthIndex);
+      if (plan && plan.shiftable.length > 0) {
+        options.shiftLinkedPayments = confirm(`A entrega mudou ${plan.delta > 0 ? '+' : ''}${plan.delta} mês(es). Deslocar ${plan.shiftable.length} pagamento(s) futuro(s) e não quitado(s) vinculado(s) à entrega? Parcelas negociadas (${plan.independentCount}), sem vínculo identificado (${plan.unlinkedCount}) e pagamentos realizados não serão alterados. Cancelar mantém as datas atuais.`);
+      } else if (plan && plan.unlinkedCount > 0) {
+        alert(`A entrega mudou, mas ${plan.unlinkedCount} pagamento(s) pendente(s) não têm vínculo identificado com a entrega (dados antigos ou importados) e mantiveram suas datas. Revise os vencimentos.`);
+      }
     }
     const itemData = mergeItemEdit(existing, {
       id: itemId || ('item_' + Date.now()),
@@ -283,7 +299,7 @@ export class ItemsUI {
       shippingCents,
       installationTotalCents,
       deliveryMonthIndex
-    }, this.project.assumptions || {});
+    }, this.project.assumptions || {}, options);
 
     if (itemId) {
       const idx = (this.project.items || []).findIndex(i => i.id === itemId);
@@ -350,36 +366,7 @@ export function isSettlementTransition(existing, newStatus) {
   return SETTLED_STATUSES.includes(newStatus) && !SETTLED_STATUSES.includes(existing?.status);
 }
 
-function buildSettledPayments(item) {
-  const basePrice = item.basePriceCents ?? 0;
-  const paidPayments = (item.payments || []).filter(payment => payment.isPaid);
-  const paidTotal = paidPayments.reduce((sum, payment) => sum + payment.amountCents, 0);
-  const payments = paidPayments.map(payment => ({ ...payment }));
-  if (item.scope !== SCOPE_OPTIONS.ALREADY_OWNED && basePrice > paidTotal) {
-    payments.push({
-      amountCents: basePrice - paidTotal,
-      monthIndex: 0,
-      isPaid: true,
-      isDeposit: false,
-      description: 'Quitação registrada ao marcar o item como comprado',
-      source: 'status_change'
-    });
-  }
-  const accessories = (item.shippingCents ?? 0) + (item.assemblyCents ?? 0) +
-    (item.installationCents ?? 0) + (item.additionalCostsCents ?? 0);
-  if (accessories > 0) {
-    payments.push({
-      amountCents: accessories,
-      monthIndex: item.deliveryMonthIndex ?? 0,
-      isPaid: false,
-      isDeposit: false,
-      description: 'Custos acessórios pendentes (frete, montagem, instalação)'
-    });
-  }
-  return payments;
-}
-
-export function mergeItemEdit(existing, updates, assumptions) {
+export function mergeItemEdit(existing, updates, assumptions, options = {}) {
   const assemblyCents = existing?.assemblyCents || 0;
   const previousInstallationTotal = assemblyCents + (existing?.installationCents || 0);
   const itemData = {
@@ -392,7 +379,16 @@ export function mergeItemEdit(existing, updates, assumptions) {
   };
   delete itemData.installationTotalCents;
 
+  if (existing && options.shiftLinkedPayments) {
+    const plan = planDeliveryShift(existing, itemData.deliveryMonthIndex);
+    if (plan) itemData.payments = applyDeliveryShift(existing.payments, plan.delta);
+  }
+
   if (isSettlementTransition(existing, itemData.status)) {
+    itemData.payments = buildSettledPayments(itemData);
+    return itemData;
+  }
+  if (options.confirmSettlement && needsSettlementConfirmation(itemData)) {
     itemData.payments = buildSettledPayments(itemData);
     return itemData;
   }
@@ -401,7 +397,13 @@ export function mergeItemEdit(existing, updates, assumptions) {
     (existing.basePriceCents ?? null) !== updates.basePriceCents ||
     (existing.shippingCents ?? 0) !== updates.shippingCents ||
     previousInstallationTotal !== updates.installationTotalCents;
-  if (costsChanged) {
+  const settledResave = existing && SETTLED_STATUSES.includes(existing.status) &&
+    SETTLED_STATUSES.includes(itemData.status);
+  if (settledResave) {
+    if (accessoryTotalCents(existing) !== accessoryTotalCents(itemData)) {
+      itemData.payments = refreshAccessoryPending(itemData);
+    }
+  } else if (costsChanged) {
     itemData.payments = FinancialEngine.processItemCost(itemData, assumptions).calculatedPayments;
   }
   return itemData;

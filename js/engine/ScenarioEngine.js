@@ -30,7 +30,16 @@ export class ScenarioEngine {
       reasons.push('Há dados essenciais não informados; esta análise é preliminar.');
     }
     if (result?.firstDeficitMonth !== null && result?.firstDeficitMonth !== undefined) {
-      reasons.push(`O caixa livre fica negativo primeiro no mês ${result.firstDeficitMonth}.`);
+      reasons.push(result.contingency?.mode === 'target'
+        ? `O caixa fica negativo primeiro no mês ${result.firstDeficitMonth}.`
+        : `O caixa livre fica negativo primeiro no mês ${result.firstDeficitMonth}.`);
+    }
+    const reserveShortfallMonth = result?.contingency?.firstReserveShortfallMonth ?? null;
+    if (reserveShortfallMonth !== null) {
+      reasons.push(`A contingência não se mantém formada a partir do mês ${reserveShortfallMonth} (falta até R$ ${(result.contingency.maxReserveShortfallCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}), embora o caixa não fique negativo.`);
+    }
+    if (result?.settlementReview?.length) {
+      reasons.push(`Há compra(s) declarada(s) como paga(s) sem histórico de pagamento a confirmar: ${result.settlementReview.map(item => item.name).join(', ')}.`);
     }
     if (result?.hasFamilyBudgetDeficit) {
       reasons.push('As obrigações informadas excedem a renda mensal em pelo menos um mês.');
@@ -44,6 +53,7 @@ export class ScenarioEngine {
         !result.hasCompleteData || missingFields.length > 0) {
       status = VIABILITY_STATUS.INSUFFICIENT_DATA;
     } else if (result.firstDeficitMonth !== null || result.hasFamilyBudgetDeficit ||
+        (result.contingency?.firstReserveShortfallMonth ?? null) !== null ||
         result.essentialItemsReadyBeforeMove === false ||
         result.postponedEssentialItems?.length > 0) {
       status = VIABILITY_STATUS.REQUIRES_ADJUSTMENTS;
@@ -69,8 +79,11 @@ export class ScenarioEngine {
       missingFieldLabels: missingFields.map(field => this.describeMissingField(field, project)),
       firstDeficitMonth: result?.firstDeficitMonth ?? null,
       firstDeficitAmountCents: firstDeficitEntry
-        ? Math.max(0, -firstDeficitEntry.freeBalanceCents)
+        ? (firstDeficitEntry.deficitCents ?? Math.max(0, -firstDeficitEntry.freeBalanceCents))
         : 0,
+      firstReserveShortfallMonth: result?.contingency?.firstReserveShortfallMonth ?? null,
+      maxReserveShortfallCents: result?.contingency?.maxReserveShortfallCents ?? 0,
+      settlementReview: result?.settlementReview ?? [],
       worstDeficitMonth: result?.worstDeficitMonth ?? null,
       maxDeficitCents: result?.maxDeficitCents ?? 0,
       balanceAtMoveCents: result?.balanceAtMoveCents ?? null,
@@ -91,7 +104,8 @@ export class ScenarioEngine {
       safetyMarginCents: 'Margem de segurança mensal',
       postMoveExpensesCents: 'Despesas mensais adicionais após as chaves',
       'apartment.keysDate': 'Data prevista das chaves',
-      'apartment.moveDate': 'Data desejada para a mudança'
+      'apartment.moveDate': 'Data desejada para a mudança',
+      'assumptions.contingencyTargetDate': 'Data-alvo para ter a contingência formada'
     };
     if (field.startsWith('price:')) {
       const itemId = field.slice('price:'.length);

@@ -153,7 +153,9 @@ export function createDefaultProject() {
       annualInflationRate: 0.0,       // 0% por padrão, configurável (ex: 0.06 = 6% a.a.)
       applyInflationToUncontracted: true,
       yieldRateAnnual: 0.0,           // Rendimentos do fundo (padrão 0%)
-      contingencyPercent: 0
+      contingencyPercent: 0,
+      contingencyMode: 'target',      // 'legacy' = reserva integral desde o primeiro desembolso (projetos migrados)
+      contingencyTargetDate: ''
     },
 
     // Lista de Itens por Ambiente

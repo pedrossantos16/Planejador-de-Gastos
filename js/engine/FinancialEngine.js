@@ -1,6 +1,7 @@
 import {
   SCOPE_OPTIONS, PRIORITY_OPTIONS, STATUS_OPTIONS, FIRM_STATUSES, SETTLED_STATUSES
 } from '../models/types.js';
+import { needsSettlementConfirmation, SETTLEMENT_ORIGIN, PAYMENT_SOURCE } from '../models/payments.js';
 
 const MAX_PROJECTION_MONTHS = 1200;
 
@@ -41,13 +42,22 @@ export class FinancialEngine {
     if (keysDate && moveDate && moveDate < keysDate) {
       throw new Error('A mudança não pode estar prevista antes da entrega das chaves.');
     }
+    const contingencyMode = assumptions.contingencyMode === 'target' ? 'target' : 'legacy';
+    const contingencyTargetDate = contingencyMode === 'target' ? (assumptions.contingencyTargetDate || '') : '';
+    if (contingencyTargetDate && !isValidDate(contingencyTargetDate)) {
+      throw new Error('A data-alvo da contingência é inválida.');
+    }
+    const targetMonth = contingencyTargetDate ? monthIndex(baseDate, contingencyTargetDate) : null;
+    if (targetMonth !== null && targetMonth < 0) {
+      throw new Error('A data-alvo da contingência é anterior à data-base.');
+    }
 
     const processedItems = items.map(item => this.processItemCost(item, assumptions));
     const latestPaymentMonth = processedItems.reduce((latest, item) =>
       item.calculatedPayments.reduce((last, payment) =>
         payment.isPaid ? last : Math.max(last, payment.monthIndex), latest), 0);
     const lastRelevantDate = Math.max(monthsToKeys ?? 0, monthsToMove ?? 0);
-    const horizonMonths = Math.max(36, lastRelevantDate + 6, latestPaymentMonth);
+    const horizonMonths = Math.max(36, lastRelevantDate + 6, latestPaymentMonth, targetMonth ?? 0);
     if (horizonMonths > MAX_PROJECTION_MONTHS) {
       throw new Error('O horizonte excede 100 anos. Revise as datas e vencimentos informados.');
     }
@@ -94,6 +104,9 @@ export class FinancialEngine {
     });
     if (monthsToKeys === null) missingFields.push('apartment.keysDate');
     if (monthsToMove === null) missingFields.push('apartment.moveDate');
+    if (contingencyMode === 'target' && (assumptions.contingencyPercent ?? 0) > 0 && targetMonth === null) {
+      missingFields.push('assumptions.contingencyTargetDate');
+    }
 
     const initialBalanceCents = profileData.initialBalanceCents ?? 0;
     const monthlyCapCents = profileData.monthlyCapCents ?? 0;
@@ -119,8 +132,14 @@ export class FinancialEngine {
       totalIncludedCostCents * (assumptions.contingencyPercent ?? 0)
     );
     // A reserva só é exigida a partir do primeiro desembolso previsto; antes disso ela está em formação.
+    // Regra anterior (projetos migrados): reserva integral desde o primeiro desembolso.
     const firstPaymentMonth = monthlyProjectPayments.findIndex(amount => amount > 0);
-    const contingencyStartMonth = firstPaymentMonth === -1 ? 0 : firstPaymentMonth;
+    const contingencyStartMonth = contingencyMode === 'target'
+      ? targetMonth
+      : (firstPaymentMonth === -1 ? 0 : firstPaymentMonth);
+    let firstReserveShortfallMonth = null;
+    let worstReserveShortfallMonth = null;
+    let maxReserveShortfallCents = 0;
     const monthlyLedger = [];
     let currentBalanceCents = initialBalanceCents;
     let totalContributionsCents = 0;
@@ -168,15 +187,28 @@ export class FinancialEngine {
       const paymentsThisMonthCents = monthlyProjectPayments[month];
       const endBalanceCents = startBalanceCents + plannedContributionCents +
         extraIncomeMonthCents + yieldCents - paymentsThisMonthCents;
-      const requiredReserveCents = month >= contingencyStartMonth ? contingencyProtectedCents : 0;
+      const reserveApplies = contingencyStartMonth !== null && month >= contingencyStartMonth;
+      const requiredReserveCents = reserveApplies ? contingencyProtectedCents : 0;
       const freeBalanceCents = endBalanceCents - requiredReserveCents;
+      const reserveFormedCents = Math.max(0, Math.min(contingencyProtectedCents, endBalanceCents));
+      const reserveShortfallCents = contingencyProtectedCents - reserveFormedCents;
+      // Regra anterior: déficit = saldo livre negativo. Nova regra: déficit = caixa negativo.
+      const deficitCents = contingencyMode === 'legacy'
+        ? Math.max(0, -freeBalanceCents)
+        : Math.max(0, -endBalanceCents);
 
-      if (freeBalanceCents < 0) {
-        const deficit = Math.abs(freeBalanceCents);
+      if (deficitCents > 0) {
         if (firstDeficitMonth === null) firstDeficitMonth = month;
-        if (deficit > maxDeficitCents) {
-          maxDeficitCents = deficit;
+        if (deficitCents > maxDeficitCents) {
+          maxDeficitCents = deficitCents;
           worstDeficitMonth = month;
+        }
+      }
+      if (contingencyMode === 'target' && reserveApplies && endBalanceCents >= 0 && reserveShortfallCents > 0) {
+        if (firstReserveShortfallMonth === null) firstReserveShortfallMonth = month;
+        if (reserveShortfallCents > maxReserveShortfallCents) {
+          maxReserveShortfallCents = reserveShortfallCents;
+          worstReserveShortfallMonth = month;
         }
       }
 
@@ -192,7 +224,11 @@ export class FinancialEngine {
         paymentsThisMonthCents,
         endBalanceCents,
         freeBalanceCents,
+        deficitCents,
         contingencyProtectedCents: requiredReserveCents,
+        reserveTargetCents: contingencyProtectedCents,
+        reserveFormedCents,
+        reserveShortfallCents,
         familyBudgetDeficitCents,
         paymentDetails: monthlyPaymentDetails[month]
       });
@@ -258,6 +294,24 @@ export class FinancialEngine {
       postMoveLiabilitiesCents,
       missingFields,
       hasCompleteData: missingFields.length === 0,
+      contingency: {
+        mode: contingencyMode,
+        percent: assumptions.contingencyPercent ?? 0,
+        protectedCents: contingencyProtectedCents,
+        targetDate: contingencyTargetDate || null,
+        targetMonth,
+        projectedAtTargetCents: targetMonth !== null ? monthlyLedger[targetMonth].endBalanceCents : null,
+        formedAtTargetCents: targetMonth !== null ? monthlyLedger[targetMonth].reserveFormedCents : null,
+        shortfallAtTargetCents: targetMonth !== null ? monthlyLedger[targetMonth].reserveShortfallCents : null,
+        sufficientAtTarget: targetMonth !== null
+          ? monthlyLedger[targetMonth].reserveShortfallCents === 0
+          : null,
+        firstReserveShortfallMonth,
+        worstReserveShortfallMonth,
+        maxReserveShortfallCents
+      },
+      settlementReview: processedItems.filter(needsSettlementConfirmation)
+        .map(item => ({ id: item.id, name: item.name })),
       isAudited: false
     };
   }
@@ -320,6 +374,7 @@ export class FinancialEngine {
             monthIndex: deliveryMonth,
             isPaid: false,
             description: 'Pagamento pendente',
+            linkedToDelivery: true,
             isDeposit: false
           });
         }
@@ -330,13 +385,16 @@ export class FinancialEngine {
       if (basePrice > 0 && item.scope !== SCOPE_OPTIONS.ALREADY_OWNED) {
         calculatedPayments.push({
           amountCents: basePrice, monthIndex: 0, isPaid: true,
-          description: 'Compra registrada como paga', isDeposit: false
+          description: 'Compra declarada como paga (sem histórico; data não informada)',
+          isDeposit: false, dateUnknown: true, paidDate: null,
+          origin: SETTLEMENT_ORIGIN.IMPORTED_UNCONFIRMED
         });
       }
       if (accessoryCosts > 0) {
         calculatedPayments.push({
           amountCents: accessoryCosts, monthIndex: deliveryMonth, isPaid: false,
-          description: 'Custos acessórios pendentes', isDeposit: false
+          description: 'Custos acessórios pendentes', isDeposit: false,
+          linkedToDelivery: true, source: PAYMENT_SOURCE.AUTO_ACCESSORY
         });
       }
     } else {
@@ -345,6 +403,7 @@ export class FinancialEngine {
         monthIndex: deliveryMonth,
         isPaid: false,
         description: 'Pagamento total do item',
+        linkedToDelivery: true,
         isDeposit: false
       }] : [];
     }
