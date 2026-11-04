@@ -187,7 +187,7 @@ export function getDemoViableProject() {
     }
   ];
 
-  return proj;
+  return markAsDemonstration(proj);
 }
 
 /**
@@ -230,7 +230,7 @@ export function getDemoInviableProject() {
     }
   ];
 
-  return proj;
+  return markAsDemonstration(proj);
 }
 
 /**
@@ -242,8 +242,8 @@ export function getDemoIncompleteProject() {
   proj.name = 'Exemplo: Planejamento Preliminar (Dados Faltantes)';
 
   proj.budgetProfile.mode = 'detailed';
-  proj.budgetProfile.detailed.netMonthlyIncomeCents = 0; // Não informado
-  proj.budgetProfile.detailed.fixedLivingExpensesCents = 0;
+  proj.budgetProfile.detailed.netMonthlyIncomeCents = null;
+  proj.budgetProfile.detailed.fixedLivingExpensesCents = null;
 
   proj.items = [
     {
@@ -256,7 +256,7 @@ export function getDemoIncompleteProject() {
       scope: SCOPE_OPTIONS.INCLUDE,
       status: STATUS_OPTIONS.SEARCH,
       strategy: STRATEGY_OPTIONS.FACTORY_PLANNED,
-      basePriceCents: 0, // Preço desconhecido
+      basePriceCents: null,
       shippingCents: 0,
       assemblyCents: 0,
       installationCents: 0,
@@ -269,5 +269,17 @@ export function getDemoIncompleteProject() {
     }
   ];
 
-  return proj;
+  return markAsDemonstration(proj);
+}
+
+function markAsDemonstration(project) {
+  const today = new Date();
+  const baseDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+  const keysDate = new Date(Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth() + 36, 1));
+  const moveDate = new Date(Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth() + 37, 1));
+  project.baseDate = baseDate.toISOString().slice(0, 10);
+  project.apartment.keysDate = keysDate.toISOString().slice(0, 10);
+  project.apartment.moveDate = moveDate.toISOString().slice(0, 10);
+  project.isDemonstration = true;
+  return project;
 }

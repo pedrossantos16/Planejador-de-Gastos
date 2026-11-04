@@ -1,8 +1,12 @@
+import { parseMoneyToCents, formatCentsToBrl } from '../models/money.js';
+
 export class FormsUI {
   constructor(onDataChangeCallback) {
     this.onDataChange = onDataChangeCallback;
+    this.isPopulating = false;
     this.initMoneyMasks();
     this.initBudgetModeToggle();
+    this.initFormChangeListeners();
   }
 
   /**
@@ -11,10 +15,22 @@ export class FormsUI {
   initMoneyMasks() {
     document.querySelectorAll('.money-input').forEach(input => {
       input.addEventListener('blur', (e) => {
-        const valCents = this.parseMoneyToCents(e.target.value);
-        if (valCents > 0 || e.target.value !== '') {
-          e.target.value = this.formatCentsToBrl(valCents);
+        const valCents = parseMoneyToCents(e.target.value);
+        if (valCents !== null) {
+          e.target.value = formatCentsToBrl(valCents);
         }
+      });
+    });
+  }
+
+  initFormChangeListeners() {
+    ['formStep1', 'formStep2', 'formStep4'].forEach(id => {
+      const form = document.getElementById(id);
+      if (!form) return;
+      ['input', 'change'].forEach(eventName => {
+        form.addEventListener(eventName, () => {
+          if (!this.isPopulating && this.onDataChange) this.onDataChange();
+        });
       });
     });
   }
@@ -25,24 +41,20 @@ export class FormsUI {
   initBudgetModeToggle() {
     document.querySelectorAll('input[name="budgetMode"]').forEach(radio => {
       radio.addEventListener('change', (e) => {
-        const mode = e.target.value;
-        const simpForm = document.getElementById('simplifiedBudgetForm');
-        const detForm = document.getElementById('detailedBudgetForm');
-
-        document.querySelectorAll('.mode-option').forEach(opt => opt.classList.remove('active'));
-        e.target.closest('.mode-option').classList.add('active');
-
-        if (mode === 'simplified') {
-          simpForm.classList.remove('hidden');
-          detForm.classList.add('hidden');
-        } else {
-          simpForm.classList.add('hidden');
-          detForm.classList.remove('hidden');
-        }
-
-        if (this.onDataChange) this.onDataChange();
+        this.setBudgetModeUI(e.target.value);
+        if (!this.isPopulating && this.onDataChange) this.onDataChange();
       });
     });
+  }
+
+  setBudgetModeUI(mode) {
+    const simpForm = document.getElementById('simplifiedBudgetForm');
+    const detForm = document.getElementById('detailedBudgetForm');
+    document.querySelectorAll('.mode-option').forEach(opt => opt.classList.remove('active'));
+    const selected = document.querySelector(`input[name="budgetMode"][value="${mode}"]`);
+    if (selected) selected.closest('.mode-option')?.classList.add('active');
+    if (simpForm) simpForm.classList.toggle('hidden', mode !== 'simplified');
+    if (detForm) detForm.classList.toggle('hidden', mode !== 'detailed');
   }
 
   /**
@@ -50,6 +62,7 @@ export class FormsUI {
    */
   populateForms(project) {
     if (!project) return;
+    this.isPopulating = true;
 
     // Nome do projeto
     const titleEl = document.getElementById('appTitleText');
@@ -58,8 +71,8 @@ export class FormsUI {
     // Etapa 1: Apartamento e Datas
     const apt = project.apartment || {};
     this.setVal('cityState', apt.cityState || '');
-    this.setVal('approxAreaM2', apt.approxAreaM2 || 55);
-    this.setVal('residentsCount', apt.residentsCount || 2);
+    this.setVal('approxAreaM2', apt.approxAreaM2 ?? '');
+    this.setVal('residentsCount', apt.residentsCount ?? '');
     this.setCheck('isHomeOffice', !!apt.isHomeOffice);
     this.setCheck('hasChildren', !!apt.hasChildren);
     this.setCheck('hasPets', !!apt.hasPets);
@@ -81,27 +94,31 @@ export class FormsUI {
     const radioMode = document.querySelector(`input[name="budgetMode"][value="${mode}"]`);
     if (radioMode) {
       radioMode.checked = true;
-      radioMode.dispatchEvent(new Event('change'));
     }
+    this.setBudgetModeUI(mode);
 
     const simp = profile.simplified || {};
-    this.setVal('simpInitialBalance', this.formatCentsToBrl(simp.initialBalanceCents || 0));
-    this.setVal('simpMonthlyCap', this.formatCentsToBrl(simp.monthlyCapCents || 0));
+    this.setVal('simpInitialBalance', this.formatOptionalMoney(simp.initialBalanceCents));
+    this.setVal('simpMonthlyCap', this.formatOptionalMoney(simp.monthlyCapCents));
 
     const det = profile.detailed || {};
-    this.setVal('detNetIncome', this.formatCentsToBrl(det.netMonthlyIncomeCents || 0));
-    this.setVal('detFixedExp', this.formatCentsToBrl(det.fixedLivingExpensesCents || 0));
-    this.setVal('detVarExp', this.formatCentsToBrl(det.variableLivingExpensesCents || 0));
-    this.setVal('detPropInst', this.formatCentsToBrl(det.propertyInstallmentCents || 0));
-    this.setVal('detOtherDebts', this.formatCentsToBrl(det.otherDebtsCents || 0));
-    this.setVal('detEmergRes', this.formatCentsToBrl(det.emergencyReserveCents || 0));
-    this.setVal('detSafetyMarg', this.formatCentsToBrl(det.safetyMarginCents || 0));
+    this.setVal('detInitialBalance', this.formatOptionalMoney(det.initialBalanceCents));
+    this.setVal('detMonthlyCap', this.formatOptionalMoney(det.monthlyCapCents));
+    this.setVal('detNetIncome', this.formatOptionalMoney(det.netMonthlyIncomeCents));
+    this.setVal('detFixedExp', this.formatOptionalMoney(det.fixedLivingExpensesCents));
+    this.setVal('detVarExp', this.formatOptionalMoney(det.variableLivingExpensesCents));
+    this.setVal('detPropInst', this.formatOptionalMoney(det.propertyInstallmentCents));
+    this.setVal('detOtherDebts', this.formatOptionalMoney(det.otherDebtsCents));
+    this.setVal('detEmergRes', this.formatOptionalMoney(det.emergencyReserveCents));
+    this.setVal('detSafetyMarg', this.formatOptionalMoney(det.safetyMarginCents));
+    this.setVal('detPostMoveExpenses', this.formatOptionalMoney(det.postMoveExpensesCents));
 
     // Etapa 4: Premissas
     const assumptions = project.assumptions || {};
-    this.setVal('annualInflation', (assumptions.annualInflationRate || 0) * 100);
+    this.setVal('annualInflation', (assumptions.annualInflationRate ?? 0) * 100);
     this.setCheck('applyInflationUncontracted', !!assumptions.applyInflationToUncontracted);
-    this.setVal('contingencyPercent', (assumptions.contingencyPercent || 0.05) * 100);
+    this.setVal('contingencyPercent', (assumptions.contingencyPercent ?? 0) * 100);
+    this.isPopulating = false;
   }
 
   /**
@@ -115,8 +132,8 @@ export class FormsUI {
 
     // Etapa 1
     project.apartment.cityState = this.getVal('cityState');
-    project.apartment.approxAreaM2 = parseFloat(this.getVal('approxAreaM2')) || 55;
-    project.apartment.residentsCount = parseInt(this.getVal('residentsCount'), 10) || 2;
+    project.apartment.approxAreaM2 = this.getVal('approxAreaM2') === '' ? null : Number(this.getVal('approxAreaM2'));
+    project.apartment.residentsCount = this.getVal('residentsCount') === '' ? null : Number.parseInt(this.getVal('residentsCount'), 10);
     project.apartment.isHomeOffice = this.getCheck('isHomeOffice');
     project.apartment.hasChildren = this.getCheck('hasChildren');
     project.apartment.hasPets = this.getCheck('hasPets');
@@ -136,23 +153,26 @@ export class FormsUI {
     const selectedMode = document.querySelector('input[name="budgetMode"]:checked');
     project.budgetProfile.mode = selectedMode ? selectedMode.value : 'simplified';
 
-    project.budgetProfile.simplified.initialBalanceCents = this.parseMoneyToCents(this.getVal('simpInitialBalance'));
-    project.budgetProfile.simplified.monthlyCapCents = this.parseMoneyToCents(this.getVal('simpMonthlyCap'));
+    project.budgetProfile.simplified.initialBalanceCents = parseMoneyToCents(this.getVal('simpInitialBalance'));
+    project.budgetProfile.simplified.monthlyCapCents = parseMoneyToCents(this.getVal('simpMonthlyCap'));
 
-    project.budgetProfile.detailed.netMonthlyIncomeCents = this.parseMoneyToCents(this.getVal('detNetIncome'));
-    project.budgetProfile.detailed.fixedLivingExpensesCents = this.parseMoneyToCents(this.getVal('detFixedExp'));
-    project.budgetProfile.detailed.variableLivingExpensesCents = this.parseMoneyToCents(this.getVal('detVarExp'));
-    project.budgetProfile.detailed.propertyInstallmentCents = this.parseMoneyToCents(this.getVal('detPropInst'));
-    project.budgetProfile.detailed.otherDebtsCents = this.parseMoneyToCents(this.getVal('detOtherDebts'));
-    project.budgetProfile.detailed.emergencyReserveCents = this.parseMoneyToCents(this.getVal('detEmergRes'));
-    project.budgetProfile.detailed.safetyMarginCents = this.parseMoneyToCents(this.getVal('detSafetyMarg'));
+    project.budgetProfile.detailed.initialBalanceCents = parseMoneyToCents(this.getVal('detInitialBalance'));
+    project.budgetProfile.detailed.monthlyCapCents = parseMoneyToCents(this.getVal('detMonthlyCap'));
+    project.budgetProfile.detailed.netMonthlyIncomeCents = parseMoneyToCents(this.getVal('detNetIncome'));
+    project.budgetProfile.detailed.fixedLivingExpensesCents = parseMoneyToCents(this.getVal('detFixedExp'));
+    project.budgetProfile.detailed.variableLivingExpensesCents = parseMoneyToCents(this.getVal('detVarExp'));
+    project.budgetProfile.detailed.propertyInstallmentCents = parseMoneyToCents(this.getVal('detPropInst'));
+    project.budgetProfile.detailed.otherDebtsCents = parseMoneyToCents(this.getVal('detOtherDebts'));
+    project.budgetProfile.detailed.emergencyReserveCents = parseMoneyToCents(this.getVal('detEmergRes'));
+    project.budgetProfile.detailed.safetyMarginCents = parseMoneyToCents(this.getVal('detSafetyMarg'));
+    project.budgetProfile.detailed.postMoveExpensesCents = parseMoneyToCents(this.getVal('detPostMoveExpenses'));
 
     // Etapa 4
-    const annualInf = parseFloat(this.getVal('annualInflation')) || 0;
+    const annualInf = Number(this.getVal('annualInflation')) || 0;
     project.assumptions.annualInflationRate = annualInf / 100;
     project.assumptions.applyInflationToUncontracted = this.getCheck('applyInflationUncontracted');
 
-    const contPct = parseFloat(this.getVal('contingencyPercent')) || 0;
+    const contPct = Number(this.getVal('contingencyPercent')) || 0;
     project.assumptions.contingencyPercent = contPct / 100;
 
     return project;
@@ -179,15 +199,7 @@ export class FormsUI {
     if (el) el.checked = checked;
   }
 
-  parseMoneyToCents(str) {
-    if (!str) return 0;
-    const cleanStr = String(str).replace(/\./g, '').replace(',', '.').replace(/[^0-9.]/g, '');
-    const num = parseFloat(cleanStr);
-    return isNaN(num) ? 0 : Math.round(num * 100);
-  }
-
-  formatCentsToBrl(cents) {
-    const val = (cents || 0) / 100;
-    return val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  formatOptionalMoney(cents) {
+    return cents === null || cents === undefined ? '' : formatCentsToBrl(cents);
   }
 }

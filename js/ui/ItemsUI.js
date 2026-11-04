@@ -1,4 +1,6 @@
 import { STRATEGY_LABELS, PRIORITY_LABELS, SCOPE_LABELS, STATUS_LABELS } from '../models/types.js';
+import { parseMoneyToCents, formatCentsToBrl } from '../models/money.js';
+import { FinancialEngine } from '../engine/FinancialEngine.js';
 
 export class ItemsUI {
   constructor(project, onItemsChangeCallback) {
@@ -44,23 +46,25 @@ export class ItemsUI {
 
     const rooms = this.project.apartment.rooms || [];
 
-    let html = `
-      <button class="room-tab ${this.activeRoomId === 'all' ? 'active' : ''}" data-room-id="all">
-        🏠 Todos os Ambientes (${(this.project.items || []).length})
-      </button>
-    `;
+    const fragment = document.createDocumentFragment();
+    const allButton = document.createElement('button');
+    allButton.type = 'button';
+    allButton.className = `room-tab ${this.activeRoomId === 'all' ? 'active' : ''}`;
+    allButton.dataset.roomId = 'all';
+    allButton.textContent = `🏠 Todos os Ambientes (${(this.project.items || []).length})`;
+    fragment.appendChild(allButton);
 
     rooms.forEach(room => {
       const roomItems = (this.project.items || []).filter(i => i.roomId === room.id);
-      const isActive = this.activeRoomId === room.id ? 'active' : '';
-      html += `
-        <button class="room-tab ${isActive}" data-room-id="${room.id}">
-          ${room.name} (${roomItems.length})
-        </button>
-      `;
+      const tab = document.createElement('button');
+      tab.type = 'button';
+      tab.className = `room-tab ${this.activeRoomId === room.id ? 'active' : ''}`;
+      tab.dataset.roomId = room.id;
+      tab.textContent = `${room.name} (${roomItems.length})`;
+      fragment.appendChild(tab);
     });
 
-    tabsBar.innerHTML = html;
+    tabsBar.replaceChildren(fragment);
 
     // Registrar eventos das abas
     tabsBar.querySelectorAll('.room-tab').forEach(tab => {
@@ -85,46 +89,74 @@ export class ItemsUI {
     }
 
     if (items.length === 0) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="7" style="text-align:center; color:#64748b; padding:24px;">
-            Nenhum item cadastrado neste ambiente. Clique em <strong>+ Adicionar Item</strong> acima para incluir.
-          </td>
-        </tr>
-      `;
+      const row = document.createElement('tr');
+      const cell = document.createElement('td');
+      cell.colSpan = 7;
+      cell.style.cssText = 'text-align:center; color:#64748b; padding:24px;';
+      cell.textContent = 'Nenhum item cadastrado neste ambiente. Clique em + Adicionar Item acima para incluir.';
+      row.appendChild(cell);
+      tbody.replaceChildren(row);
       return;
     }
 
     // Verificar duplicidades de itens
     const duplicateWarnings = this.detectDuplicates(items);
 
-    let html = '';
+    const fragment = document.createDocumentFragment();
     items.forEach(item => {
       const roomName = this.getRoomName(item.roomId);
       const hasDupWarning = duplicateWarnings[item.id];
-      const rawCost = (item.basePriceCents || 0) + (item.shippingCents || 0) + (item.assemblyCents || 0) + (item.installationCents || 0) + (item.additionalCostsCents || 0);
-      const totalBrl = (rawCost / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-      html += `
-        <tr>
-          <td>
-            <strong>${item.name}</strong> ${hasDupWarning ? '<span title="Possível duplicidade detectada com pacote completo" style="cursor:help;">⚠️</span>' : ''}
-            <br><small style="color:#64748b;">${roomName} • ${item.specification || 'Sem especificação'}</small>
-          </td>
-          <td>${STRATEGY_LABELS[item.strategy] || item.strategy}</td>
-          <td><span class="badge badge-${item.priority}">${PRIORITY_LABELS[item.priority] || item.priority}</span></td>
-          <td>${SCOPE_LABELS[item.scope] || item.scope}</td>
-          <td>${STATUS_LABELS[item.status] || item.status}</td>
-          <td><strong>R$ ${totalBrl}</strong></td>
-          <td>
-            <button class="btn btn-sm btn-outline btn-edit-item" data-id="${item.id}">✏️ Editar</button>
-            <button class="btn btn-sm btn-danger-outline btn-del-item" data-id="${item.id}">🗑️</button>
-          </td>
-        </tr>
-      `;
+      const rawCost = (item.basePriceCents || 0) + (item.shippingCents || 0) +
+        (item.assemblyCents || 0) + (item.installationCents || 0) + (item.additionalCostsCents || 0);
+      const row = document.createElement('tr');
+      const itemCell = document.createElement('td');
+      const name = document.createElement('strong');
+      name.textContent = item.name;
+      itemCell.appendChild(name);
+      if (hasDupWarning) {
+        const warning = document.createElement('span');
+        warning.title = 'Possível duplicidade detectada com pacote completo';
+        warning.textContent = ' ⚠️';
+        itemCell.appendChild(warning);
+      }
+      const detail = document.createElement('small');
+      detail.style.color = '#64748b';
+      detail.textContent = `${roomName} • ${item.specification || 'Sem especificação'}`;
+      itemCell.appendChild(document.createElement('br'));
+      itemCell.appendChild(detail);
+      row.appendChild(itemCell);
+      row.appendChild(textCell(STRATEGY_LABELS[item.strategy] || item.strategy));
+      const priorityCell = document.createElement('td');
+      const priority = document.createElement('span');
+      priority.className = `badge badge-${item.priority}`;
+      priority.textContent = PRIORITY_LABELS[item.priority] || item.priority;
+      priorityCell.appendChild(priority);
+      row.appendChild(priorityCell);
+      row.appendChild(textCell(SCOPE_LABELS[item.scope] || item.scope));
+      row.appendChild(textCell(STATUS_LABELS[item.status] || item.status));
+      const costCell = document.createElement('td');
+      const cost = document.createElement('strong');
+      cost.textContent = item.priceKnown === false ? 'Preço pendente' : `R$ ${formatCentsToBrl(rawCost)}`;
+      costCell.appendChild(cost);
+      row.appendChild(costCell);
+      const actions = document.createElement('td');
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'btn btn-sm btn-outline btn-edit-item';
+      edit.dataset.id = item.id;
+      edit.textContent = '✏️ Editar';
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'btn btn-sm btn-danger-outline btn-del-item';
+      remove.dataset.id = item.id;
+      remove.setAttribute('aria-label', `Remover ${item.name}`);
+      remove.textContent = '🗑️';
+      actions.append(edit, remove);
+      row.appendChild(actions);
+      fragment.appendChild(row);
     });
 
-    tbody.innerHTML = html;
+    tbody.replaceChildren(fragment);
 
     // Eventos de Editar e Deletar
     tbody.querySelectorAll('.btn-edit-item').forEach(btn => {
@@ -152,7 +184,12 @@ export class ItemsUI {
 
     // População de salas no select
     const rooms = this.project.apartment.rooms || [];
-    selectRoom.innerHTML = rooms.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+    selectRoom.replaceChildren(...rooms.map(room => {
+      const option = document.createElement('option');
+      option.value = room.id;
+      option.textContent = room.name;
+      return option;
+    }));
 
     if (itemId) {
       document.getElementById('itemModalTitle').innerText = 'Editar Item';
@@ -165,10 +202,10 @@ export class ItemsUI {
         document.getElementById('modalItemPriority').value = item.priority;
         document.getElementById('modalItemScope').value = item.scope;
         document.getElementById('modalItemStrategy').value = item.strategy;
-        document.getElementById('modalItemBasePrice').value = formatMoney(item.basePriceCents);
-        document.getElementById('modalItemShipping').value = formatMoney(item.shippingCents);
-        document.getElementById('modalItemInstallation').value = formatMoney((item.installationCents || 0) + (item.assemblyCents || 0));
-        document.getElementById('modalItemDeliveryMonth').value = item.deliveryMonthIndex !== undefined ? item.deliveryMonthIndex : 35;
+        document.getElementById('modalItemBasePrice').value = formatOptionalMoney(item.basePriceCents);
+        document.getElementById('modalItemShipping').value = formatOptionalMoney(item.shippingCents);
+        document.getElementById('modalItemInstallation').value = formatOptionalMoney((item.installationCents || 0) + (item.assemblyCents || 0));
+        document.getElementById('modalItemDeliveryMonth').value = item.deliveryMonthIndex ?? 35;
         document.getElementById('modalItemStatus').value = item.status;
       }
     } else {
@@ -180,7 +217,7 @@ export class ItemsUI {
       document.getElementById('modalItemPriority').value = 'essential';
       document.getElementById('modalItemScope').value = 'include';
       document.getElementById('modalItemStrategy').value = 'custom_woodwork';
-      document.getElementById('modalItemBasePrice').value = '0,00';
+      document.getElementById('modalItemBasePrice').value = '';
       document.getElementById('modalItemShipping').value = '0,00';
       document.getElementById('modalItemInstallation').value = '0,00';
       document.getElementById('modalItemDeliveryMonth').value = 35;
@@ -208,12 +245,25 @@ export class ItemsUI {
       return;
     }
 
-    const basePriceCents = parseMoney(document.getElementById('modalItemBasePrice').value);
-    const shippingCents = parseMoney(document.getElementById('modalItemShipping').value);
-    const installationCents = parseMoney(document.getElementById('modalItemInstallation').value);
-    const deliveryMonthIndex = parseInt(document.getElementById('modalItemDeliveryMonth').value, 10) || 35;
+    const basePriceInput = document.getElementById('modalItemBasePrice').value;
+    const basePriceCents = basePriceInput.trim() === '' ? null : parseMoneyToCents(basePriceInput);
+    const shippingCents = parseMoneyToCents(document.getElementById('modalItemShipping').value);
+    const installationTotalCents = parseMoneyToCents(document.getElementById('modalItemInstallation').value);
+    const monthValue = document.getElementById('modalItemDeliveryMonth').value;
+    const deliveryMonthIndex = monthValue === '' ? null : Number.parseInt(monthValue, 10);
+    if ((basePriceInput.trim() !== '' && basePriceCents === null) ||
+        shippingCents === null || installationTotalCents === null ||
+        !Number.isInteger(deliveryMonthIndex) || deliveryMonthIndex < 0) {
+      alert('Informe valores monetários não negativos e um mês de entrega válido.');
+      return;
+    }
 
-    const itemData = {
+    const existing = (this.project.items || []).find(item => item.id === itemId);
+    if (existing && installationTotalCents < (existing.assemblyCents || 0)) {
+      alert('O custo de instalação não pode ser menor que a montagem já registrada.');
+      return;
+    }
+    const itemData = mergeItemEdit(existing, {
       id: itemId || ('item_' + Date.now()),
       roomId,
       name,
@@ -224,19 +274,9 @@ export class ItemsUI {
       status: document.getElementById('modalItemStatus').value,
       basePriceCents,
       shippingCents,
-      assemblyCents: 0,
-      installationCents,
-      additionalCostsCents: 0,
-      deliveryMonthIndex,
-      confidenceLevel: 'medium',
-      payments: [{
-        amountCents: basePriceCents + shippingCents + installationCents,
-        monthIndex: deliveryMonthIndex,
-        isPaid: false,
-        description: 'Pagamento total',
-        isDeposit: false
-      }]
-    };
+      installationTotalCents,
+      deliveryMonthIndex
+    }, this.project.assumptions || {});
 
     if (itemId) {
       const idx = (this.project.items || []).findIndex(i => i.id === itemId);
@@ -254,6 +294,12 @@ export class ItemsUI {
   }
 
   deleteItem(itemId) {
+    const item = (this.project.items || []).find(entry => entry.id === itemId);
+    if (!item) return;
+    if (['contracted', 'paid_partial', 'bought', 'delivered', 'installed'].includes(item.status)) {
+      alert('Este item já tem pagamentos ou obrigações registrados e não pode ser apagado. Edite o escopo para deixá-lo fora das novas compras; os compromissos continuarão no plano.');
+      return;
+    }
     if (!confirm('Tem certeza que deseja remover este item?')) return;
     this.project.items = (this.project.items || []).filter(i => i.id !== itemId);
     this.renderRoomTabs();
@@ -283,14 +329,35 @@ export class ItemsUI {
   }
 }
 
-function parseMoney(str) {
-  if (!str) return 0;
-  const cleanStr = String(str).replace(/\./g, '').replace(',', '.').replace(/[^0-9.]/g, '');
-  const num = parseFloat(cleanStr);
-  return isNaN(num) ? 0 : Math.round(num * 100);
+function formatOptionalMoney(cents) {
+  return cents === null || cents === undefined ? '' : formatCentsToBrl(cents);
 }
 
-function formatMoney(cents) {
-  const val = (cents || 0) / 100;
-  return val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function textCell(text) {
+  const cell = document.createElement('td');
+  cell.textContent = text ?? '';
+  return cell;
+}
+
+export function mergeItemEdit(existing, updates, assumptions) {
+  const assemblyCents = existing?.assemblyCents || 0;
+  const previousInstallationTotal = assemblyCents + (existing?.installationCents || 0);
+  const itemData = {
+    ...(existing || {}),
+    ...updates,
+    assemblyCents,
+    installationCents: updates.installationTotalCents - assemblyCents,
+    additionalCostsCents: existing?.additionalCostsCents || 0,
+    confidenceLevel: existing?.confidenceLevel ?? 'preliminary'
+  };
+  delete itemData.installationTotalCents;
+
+  const costsChanged = !existing ||
+    (existing.basePriceCents ?? null) !== updates.basePriceCents ||
+    (existing.shippingCents ?? 0) !== updates.shippingCents ||
+    previousInstallationTotal !== updates.installationTotalCents;
+  if (costsChanged) {
+    itemData.payments = FinancialEngine.processItemCost(itemData, assumptions).calculatedPayments;
+  }
+  return itemData;
 }

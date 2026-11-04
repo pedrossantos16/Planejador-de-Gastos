@@ -7,8 +7,8 @@
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="shortcut icon" href="favicon.svg">
   <link rel="stylesheet" href="css/styles.css">
-  <!-- SheetJS para exportação de planilhas Excel nativas (.xlsx) -->
-  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  <!-- SheetJS versão fixada para exportação de planilhas Excel (.xlsx) -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -22,6 +22,7 @@
       </div>
 
       <div class="header-actions">
+        <span id="saveStatus" class="save-status" role="status" aria-live="polite">Carregando…</span>
         <select id="demoSelector" class="demo-select" title="Carregar projeto demonstrativo">
           <option value="">-- Carregar Exemplo --</option>
           <option value="viable">Exemplo 1: Viável & Equilibrado</option>
@@ -98,15 +99,15 @@
           <div class="form-row">
             <div class="form-group">
               <label for="approxAreaM2">Área Aprox. (m²)</label>
-              <input type="number" id="approxAreaM2" min="15" max="500" value="55" class="form-control">
+              <input type="number" id="approxAreaM2" min="15" max="500" class="form-control">
             </div>
             <div class="form-group">
               <label for="residentsCount">Nº de Moradores</label>
-              <input type="number" id="residentsCount" min="1" max="10" value="2" class="form-control">
+              <input type="number" id="residentsCount" min="1" max="10" class="form-control">
             </div>
           </div>
           <div class="form-group checkbox-group">
-            <label><input type="checkbox" id="isHomeOffice" checked> Alguém trabalha em home office</label>
+            <label><input type="checkbox" id="isHomeOffice"> Alguém trabalha em home office</label>
             <label><input type="checkbox" id="hasChildren"> Crianças na residência</label>
             <label><input type="checkbox" id="hasPets"> Animais de estimação (Pets)</label>
             <label><input type="checkbox" id="accessibilityNeeds"> Necessidades de acessibilidade</label>
@@ -129,10 +130,10 @@
           <h3>Itens que a Construtora já Entregará</h3>
           <div class="form-group checkbox-group">
             <label><input type="checkbox" id="delFlooring"> Pisos nas áreas secas</label>
-            <label><input type="checkbox" id="delWallTiles" checked> Revestimento em banheiros e cozinha</label>
-            <label><input type="checkbox" id="delCountertops" checked> Bancadas de granito/mármore</label>
+            <label><input type="checkbox" id="delWallTiles"> Revestimento em banheiros e cozinha</label>
+            <label><input type="checkbox" id="delCountertops"> Bancadas de granito/mármore</label>
             <label><input type="checkbox" id="delLighting"> Iluminação básica pronta</label>
-            <label><input type="checkbox" id="delSanitary" checked> Louças e metais instalados</label>
+            <label><input type="checkbox" id="delSanitary"> Louças e metais instalados</label>
           </div>
         </div>
       </form>
@@ -190,6 +191,16 @@
       <div id="detailedBudgetForm" class="form-grid hidden">
         <div class="card form-card">
           <h3>Receitas e Despesas de Vida</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="detInitialBalance">Saldo reservado exclusivamente para este projeto (R$)</label>
+              <input type="text" id="detInitialBalance" placeholder="Informe se houver" class="form-control money-input">
+            </div>
+            <div class="form-group">
+              <label for="detMonthlyCap">Teto mensal autorizado para o projeto (R$)</label>
+              <input type="text" id="detMonthlyCap" placeholder="Informe quanto pode reservar" class="form-control money-input">
+            </div>
+          </div>
           <div class="form-group">
             <label for="detNetIncome">Renda Líquida Familiar Mensal (R$)</label>
             <input type="text" id="detNetIncome" placeholder="8.000,00" class="form-control money-input">
@@ -228,6 +239,11 @@
               <label for="detSafetyMarg">Margem de Segurança Mensal (R$)</label>
               <input type="text" id="detSafetyMarg" placeholder="500,00" class="form-control money-input">
             </div>
+          </div>
+          <div class="form-group">
+            <label for="detPostMoveExpenses">Despesas mensais adicionais após as chaves (R$)</label>
+            <input type="text" id="detPostMoveExpenses" placeholder="Informe o valor ou 0 se não se aplica" class="form-control money-input">
+            <small class="help-text">Ex.: condomínio e IPTU que ainda não estão incluídos nas despesas acima.</small>
           </div>
         </div>
       </div>
@@ -301,7 +317,7 @@
           </div>
           <div class="form-group">
             <label for="contingencyPercent">Reserva para Imprevistos na Obra/Instalação (%)</label>
-            <input type="number" id="contingencyPercent" step="1" min="0" max="25" value="5" class="form-control">
+            <input type="number" id="contingencyPercent" step="1" min="0" max="25" value="0" class="form-control">
           </div>
         </div>
 
@@ -330,12 +346,12 @@
       <div class="export-bar card">
         <div class="export-title">
           <span>📄 Exportação Real de Arquivos</span>
-          <small>Gere documentos válidos em PDF, Excel real (.xlsx com fórmulas) e CSV para usar com a família e fornecedores.</small>
+          <small>Gere uma prévia para imprimir/salvar como PDF, uma planilha XLSX com valores calculados (sem fórmulas dinâmicas) e arquivos CSV. Alterações na planilha não recalculam o plano no site.</small>
         </div>
         <div class="export-buttons">
-          <button id="btnExportPdfExec" class="btn btn-export btn-pdf">📄 PDF Executivo (1-2 pág)</button>
-          <button id="btnExportPdfDet" class="btn btn-export btn-pdf">📑 PDF Detalhado</button>
-          <button id="btnExportExcel" class="btn btn-export btn-excel">📊 Excel Real (.xlsx)</button>
+          <button id="btnExportPdfExec" class="btn btn-export btn-pdf">📄 Prévia executiva (imprimir/salvar PDF)</button>
+          <button id="btnExportPdfDet" class="btn btn-export btn-pdf">📑 Prévia detalhada (imprimir/salvar PDF)</button>
+          <button id="btnExportExcel" class="btn btn-export btn-excel">📊 Planilha XLSX (valores calculados)</button>
           <button id="btnExportCsvItems" class="btn btn-export btn-csv">📝 CSV Itens</button>
           <button id="btnExportCsvLedger" class="btn btn-export btn-csv">📉 CSV Fluxo Mensal</button>
           <button id="btnExportJson" class="btn btn-export btn-json">💾 Salvar JSON</button>
@@ -360,7 +376,7 @@
 
       <!-- CRONOGRAMA E FLUXO MENSAIS -->
       <div class="section-title">
-        <h3>Evolução Mensal do Fundo e Compromissos (36 Meses)</h3>
+        <h3>Evolução Mensal do Fundo e Compromissos</h3>
       </div>
       <div class="card ledger-card">
         <div class="ledger-table-wrapper">
@@ -372,7 +388,7 @@
                 <th>Aporte Planejado</th>
                 <th>Entradas Extras</th>
                 <th>Pagamentos</th>
-                <th>Saldo Fundo</th>
+                <th>Saldo Livre (após contingência)</th>
                 <th>Déficit Familiar</th>
               </tr>
             </thead>
@@ -496,26 +512,12 @@
     </div>
   </div>
 
-  <!-- RODAPÉ E SUÍTE DE TESTES AUTOMATIZADOS -->
+  <!-- RODAPÉ -->
   <footer class="app-footer">
     <div class="container footer-content">
       <span>Meu Apê Planejado • Sistema de Planejamento de Mobília e Mudança</span>
-      <button id="btnRunAcceptanceTests" class="btn btn-sm btn-outline">🧪 Executar 15 Testes de Aceitação</button>
     </div>
   </footer>
-
-  <!-- MODAL DOS TESTES DE ACEITAÇÃO -->
-  <div id="testsModal" class="modal-overlay hidden">
-    <div class="modal-card modal-lg">
-      <div class="modal-header">
-        <h3>Resultado dos Testes de Aceitação Automatizados (1 a 15)</h3>
-        <button id="btnCloseTestsModal" class="close-btn">&times;</button>
-      </div>
-      <div class="modal-body" id="testsResultsBody">
-        <!-- Renderizado via AcceptanceTests.js -->
-      </div>
-    </div>
-  </div>
 
   <!-- CONTROLADORES DA APLICAÇÃO -->
   <script type="module" src="js/app.js"></script>

@@ -114,6 +114,13 @@ body {
   flex-wrap: wrap;
 }
 
+.save-status {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.3;
+  max-width: 240px;
+}
+
 .demo-select {
   padding: 8px 12px;
   border-radius: 6px;
@@ -674,6 +681,9 @@ body {
   }
   .step-label {
     display: none;
+  }
+  .wizard-step.active .step-label {
+    display: inline;
   }
   .form-row {
     grid-template-columns: 1fr;

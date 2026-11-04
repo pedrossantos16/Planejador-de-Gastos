@@ -1,10 +1,15 @@
 import { STRATEGY_LABELS, PRIORITY_LABELS, SCOPE_LABELS, STATUS_LABELS } from '../models/types.js';
+import { ScenarioEngine } from '../engine/ScenarioEngine.js';
 
 export class ExcelExporter {
   /**
    * Exporta o projeto e resultado financeiro para uma planilha Excel real (.xlsx)
    */
   static exportToExcel(project, result) {
+    const viability = result.viability || ScenarioEngine.evaluateViability(result);
+    const activeProfile = project.budgetProfile.mode === 'detailed'
+      ? project.budgetProfile.detailed
+      : project.budgetProfile.simplified;
     if (typeof XLSX === 'undefined') {
       alert('A biblioteca SheetJS (XLSX) não foi carregada. Verifique sua conexão ou recursos locais.');
       return;
@@ -16,10 +21,12 @@ export class ExcelExporter {
     const summaryData = [
       ['MEU APÊ PLANEJADO - RESUMO DO PROJETO'],
       ['Projeto:', project.name || 'Meu Apê Planejado'],
+      ['Tipo de dados:', project.isDemonstration ? 'DEMONSTRAÇÃO FICTÍCIA — não é pesquisa de mercado' : 'Planejamento baseado nas informações fornecidas'],
       ['Data de Exportação:', new Date().toLocaleDateString('pt-BR')],
-      ['Modo de Orçamento:', project.budgetProfile.mode === 'detailed' ? 'Detalhado (Auditado)' : 'Simplificado'],
-      ['Prazo até a Entrega das Chaves:', `${result.monthsToKeys} meses (${project.apartment.keysDate || 'N/A'})`],
-      ['Prazo até a Mudança Desejada:', `${result.monthsToMove} meses (${project.apartment.moveDate || 'N/A'})`],
+      ['Modo de Orçamento:', project.budgetProfile.mode === 'detailed' ? 'Detalhado (conforme dados informados)' : 'Simplificado'],
+      ['Data-base do planejamento:', result.baseDate],
+      ['Prazo até a Entrega das Chaves:', result.monthsToKeys === null ? 'Não informado' : `${result.monthsToKeys} meses (${project.apartment.keysDate})`],
+      ['Prazo até a Mudança Desejada:', result.monthsToMove === null ? 'Não informado' : `${result.monthsToMove} meses (${project.apartment.moveDate})`],
       [''],
       ['INDICADORES FINANCEIROS CHAVE', 'VALOR (R$)'],
       ['Investimento Total no Escopo Incluído', result.totalIncludedCostCents / 100],
@@ -28,12 +35,16 @@ export class ExcelExporter {
       ['Investimento no Escopo Opcional', result.totalOptionalCostCents / 100],
       ['Total de Aportes Previstos no Período', result.totalContributionsCents / 100],
       ['Saldo Final Acumulado no Fundo', result.finalBalanceCents / 100],
+      ['Saldo Livre após contingência', result.finalFreeBalanceCents / 100],
       ['Compromissos Futuros Pós-Mudança', result.postMoveLiabilitiesCents / 100],
       [''],
       ['DIAGNÓSTICO DE VIABILIDADE'],
-      ['Status:', result.firstDeficitMonth !== null ? 'REQUER AJUSTES (Déficit em mês específico)' : 'VIÁVEL E COMPATÍVEL'],
-      ['Primeiro Mês com Déficit:', result.firstDeficitMonth !== null ? `Mês ${result.firstDeficitMonth}` : 'Nenhum'],
-      ['Déficit Máximo Registrado (R$):', result.maxDeficitCents / 100]
+      ['Status:', viability.label],
+      ['Campos pendentes:', viability.missingFields.join(', ')],
+      ['Primeiro Mês com Déficit:', viability.firstDeficitMonth === null ? 'Nenhum' : `Mês ${viability.firstDeficitMonth}`],
+      ['Valor do Primeiro Déficit (R$):', viability.firstDeficitAmountCents / 100],
+      ['Mês do Pior Déficit:', viability.worstDeficitMonth === null ? 'Nenhum' : `Mês ${viability.worstDeficitMonth}`],
+      ['Déficit Máximo Registrado (R$):', viability.maxDeficitCents / 100]
     ];
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumo');
@@ -56,12 +67,12 @@ export class ExcelExporter {
         PRIORITY_LABELS[item.priority] || item.priority,
         SCOPE_LABELS[item.scope] || item.scope,
         STATUS_LABELS[item.status] || item.status,
-        (item.basePriceCents || 0) / 100,
+        item.priceKnown === false ? '' : (item.basePriceCents || 0) / 100,
         (item.shippingCents || 0) / 100,
         (item.assemblyCents || 0) / 100,
         (item.installationCents || 0) / 100,
         (item.additionalCostsCents || 0) / 100,
-        (item.totalInstalledCostCents || 0) / 100,
+        item.priceKnown === false ? '' : (item.totalInstalledCostCents || 0) / 100,
         item.deliveryMonthIndex !== undefined ? `Mês ${item.deliveryMonthIndex}` : 'N/A',
         item.supplier || '',
         item.confidenceLevel || 'medium'
@@ -126,14 +137,15 @@ export class ExcelExporter {
       ['Aplicar Inflação a Itens Não Contratados:', project.assumptions.applyInflationToUncontracted ? 'Sim' : 'Não'],
       ['Taxa de Rendimento do Fundo:', `${(project.assumptions.yieldRateAnnual || 0) * 100}% a.a.`],
       ['Margem de Contingência:', `${(project.assumptions.contingencyPercent || 0) * 100}%`],
-      ['Saldo Inicial do Projeto (R$):', (project.budgetProfile.simplified.initialBalanceCents || 0) / 100],
-      ['Teto de Aporte Mensal (R$):', (project.budgetProfile.simplified.monthlyCapCents || 0) / 100]
+      ['Saldo Inicial do Projeto (R$):', activeProfile.initialBalanceCents === null ? '' : (activeProfile.initialBalanceCents || 0) / 100],
+      ['Teto de Aporte Mensal (R$):', activeProfile.monthlyCapCents === null ? '' : (activeProfile.monthlyCapCents || 0) / 100]
     ];
     const wsAssumptions = XLSX.utils.aoa_to_sheet(assumptionsData);
     XLSX.utils.book_append_sheet(wb, wsAssumptions, 'Premissas');
 
     // Gerar o arquivo e realizar o download
-    const filename = `Planejamento_Ape_${sanitizeFileName(project.name)}_${new Date().toISOString().split('T')[0]}.xlsx`;
+    const demoPrefix = project.isDemonstration ? 'Demonstracao_Ficticia_' : '';
+    const filename = `${demoPrefix}Planejamento_Ape_${sanitizeFileName(project.name)}_${new Date().toISOString().split('T')[0]}.xlsx`;
     XLSX.writeFile(wb, filename);
   }
 }

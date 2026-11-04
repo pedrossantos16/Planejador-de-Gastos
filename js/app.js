@@ -12,7 +12,6 @@ import { PdfExporter } from './export/PdfExporter.js';
 import { CsvExporter } from './export/CsvExporter.js';
 import { getDemoViableProject, getDemoInviableProject, getDemoIncompleteProject } from './models/defaultData.js';
 import { createDefaultProject } from './models/types.js';
-import { AcceptanceTests } from './tests/AcceptanceTests.js';
 
 class App {
   constructor() {
@@ -20,6 +19,8 @@ class App {
     this.financialResult = null;
     this.scenarios = null;
     this.recommendation = null;
+    this.isDemo = false;
+    this.hasCorruptSavedProject = false;
 
     this.wizardUI = null;
     this.formsUI = null;
@@ -28,7 +29,17 @@ class App {
 
   init() {
     // 1. Carregar projeto salvo ou criar padrão
-    this.project = StorageManager.loadProject();
+    try {
+      this.project = StorageManager.loadProject();
+    } catch (error) {
+      console.error(error);
+      this.hasCorruptSavedProject = true;
+      this.project = createDefaultProject();
+      this.setSaveStatus('Projeto salvo inválido; original preservado. Exporte a recuperação antes de continuar.');
+      alert(`${error.message}\n\nO projeto original não foi sobrescrito. Você pode exportar o arquivo original para recuperação.`);
+      const recoverButton = document.getElementById('btnSaveJson');
+      if (recoverButton) recoverButton.title = 'Há um arquivo salvo inválido; a recuperação permanece no armazenamento local.';
+    }
 
     // 2. Inicializar controladores de UI
     this.formsUI = new FormsUI(() => this.handleDataChange());
@@ -47,26 +58,40 @@ class App {
     // 4. Conectar Eventos da Barra Superior e Exportações
     this.bindHeaderEvents();
     this.bindExportEvents();
-    this.bindTestEvents();
-
     // 5. Cálculo Inicial
     this.recalculateAndRender();
+    if (!this.hasCorruptSavedProject) {
+      this.setSaveStatus('Pronto — as alterações serão salvas neste dispositivo.');
+    }
   }
 
   handleDataChange() {
     this.formsUI.readForms(this.project);
-    StorageManager.saveProject(this.project);
+    if (this.hasCorruptSavedProject) {
+      this.setSaveStatus('Salvamento bloqueado: exporte o original ou inicie um novo planejamento com backup.');
+    } else if (this.isDemo) {
+      this.setSaveStatus('Demonstração fictícia — não salva no seu planejamento.');
+    } else {
+      const result = StorageManager.saveProject(this.project);
+      this.setSaveStatus(result.success ? 'Salvo neste dispositivo' : `Falha ao salvar: ${result.error}`);
+    }
     this.recalculateAndRender();
   }
 
   recalculateAndRender() {
-    this.formsUI.readForms(this.project);
-
     // Executar cálculo financeiro determinístico
-    this.financialResult = FinancialEngine.calculate(this.project);
+    try {
+      this.financialResult = FinancialEngine.calculate(this.project);
+      this.financialResult.viability = ScenarioEngine.evaluateViability(this.financialResult, this.project);
+    } catch (error) {
+      this.setSaveStatus(`Não foi possível calcular: ${error.message}`);
+      console.error('Falha ao calcular o planejamento:', error);
+      return;
+    }
 
     // Executar simulação de cenários
     this.scenarios = ScenarioEngine.generateScenarios(this.project);
+    this.renderDataQualitySummary(this.financialResult);
 
     // Diagnóstico e Recomendações
     this.recommendation = Recommender.analyze(this.project, this.financialResult, this.scenarios);
@@ -86,9 +111,9 @@ class App {
     if (demoSelect) {
       demoSelect.addEventListener('change', (e) => {
         const val = e.target.value;
-        if (val === 'viable') this.loadProjectData(getDemoViableProject());
-        else if (val === 'inviable') this.loadProjectData(getDemoInviableProject());
-        else if (val === 'incomplete') this.loadProjectData(getDemoIncompleteProject());
+        if (val === 'viable') this.loadProjectData(getDemoViableProject(), { persist: false, demo: true });
+        else if (val === 'inviable') this.loadProjectData(getDemoInviableProject(), { persist: false, demo: true });
+        else if (val === 'incomplete') this.loadProjectData(getDemoIncompleteProject(), { persist: false, demo: true });
         e.target.value = '';
       });
     }
@@ -96,7 +121,7 @@ class App {
     const btnLoadDemoViable = document.getElementById('btnLoadDemoViable');
     if (btnLoadDemoViable) {
       btnLoadDemoViable.addEventListener('click', () => {
-        this.loadProjectData(getDemoViableProject());
+        this.loadProjectData(getDemoViableProject(), { persist: false, demo: true });
         this.wizardUI.goToStep(5);
       });
     }
@@ -105,8 +130,9 @@ class App {
     const btnReset = document.getElementById('btnResetProject');
     if (btnReset) {
       btnReset.addEventListener('click', () => {
-        if (confirm('Deseja iniciar um novo planejamento limpo? Os dados não salvos no LocalStorage serão reiniciados.')) {
-          this.loadProjectData(createDefaultProject());
+        if (confirm('Iniciar um novo planejamento? O projeto atual será baixado como backup antes da substituição.')) {
+          if (!this.exportPreviousProjectBackup()) return;
+          this.loadProjectData(createDefaultProject(), { persist: true });
           this.wizardUI.goToStep(1);
         }
       });
@@ -116,7 +142,7 @@ class App {
     const btnSaveJson = document.getElementById('btnSaveJson');
     if (btnSaveJson) {
       btnSaveJson.addEventListener('click', () => {
-        StorageManager.exportToJson(this.project);
+        this.exportCurrentBackup();
       });
     }
 
@@ -127,17 +153,36 @@ class App {
       jsonFileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        if (file.size > 5 * 1024 * 1024) {
+          alert('O arquivo excede o limite de 5 MB.');
+          jsonFileInput.value = '';
+          return;
+        }
 
         const reader = new FileReader();
         reader.onload = (event) => {
           const res = StorageManager.importFromJsonText(event.target.result);
           if (res.success) {
-            alert('Projeto importado com sucesso!');
-            this.loadProjectData(res.project);
-            this.wizardUI.goToStep(5);
+            const preview = `Projeto: ${res.project.name}\nItens: ${res.project.items.length}\nData-base: ${res.project.baseDate}\n\nA importação substituirá o planejamento atual. Baixar backup do atual e continuar?`;
+            if (confirm(preview)) {
+              if (!this.exportPreviousProjectBackup()) return;
+              const saved = StorageManager.saveProject(res.project);
+              if (!saved.success) {
+                alert(`Não foi possível gravar a importação. O projeto atual continua aberto.\n${saved.error}`);
+                return;
+              }
+              this.hasCorruptSavedProject = false;
+              this.loadProjectData(res.project, { persist: false });
+              this.wizardUI.goToStep(5);
+            }
           } else {
             alert('Erro ao importar arquivo JSON: ' + res.error);
           }
+          jsonFileInput.value = '';
+        };
+        reader.onerror = () => {
+          alert('Não foi possível ler o arquivo selecionado. O planejamento atual foi mantido.');
+          jsonFileInput.value = '';
         };
         reader.readAsText(file);
       });
@@ -148,7 +193,7 @@ class App {
     if (titleText) {
       titleText.addEventListener('blur', () => {
         this.project.name = titleText.innerText.trim() || 'Meu Apê Planejado';
-        StorageManager.saveProject(this.project);
+        this.handleDataChange();
       });
     }
   }
@@ -181,68 +226,87 @@ class App {
 
     const btnExportJson = document.getElementById('btnExportJson');
     if (btnExportJson) {
-      btnExportJson.addEventListener('click', () => StorageManager.exportToJson(this.project));
+      btnExportJson.addEventListener('click', () => this.exportCurrentBackup());
     }
   }
 
-  bindTestEvents() {
-    const btnRunTests = document.getElementById('btnRunAcceptanceTests');
-    const modal = document.getElementById('testsModal');
-    const btnClose = document.getElementById('btnCloseTestsModal');
-    const body = document.getElementById('testsResultsBody');
-
-    if (btnRunTests && modal && body) {
-      btnRunTests.addEventListener('click', () => {
-        const testRunner = new AcceptanceTests();
-        const results = testRunner.runAllTests();
-
-        let passCount = results.filter(r => r.passed).length;
-        let failCount = results.length - passCount;
-
-        body.innerHTML = `
-          <div style="margin-bottom:16px; padding:12px; border-radius:6px; background:${failCount === 0 ? '#dcfce7' : '#fef2f2'}; color:${failCount === 0 ? '#166534' : '#991b1b'};">
-            <strong>Resumo da Execução:</strong> ${passCount} de ${results.length} testes passaram. ${failCount > 0 ? `(${failCount} falhas)` : '🎉 100% dos Testes de Aceitação PASSARAM!'}
-          </div>
-
-          <table style="width:100%; border-collapse:collapse; font-size:13px;">
-            <thead>
-              <tr style="background:#f8fafc; border-bottom:2px solid #e2e8f0; text-align:left;">
-                <th style="padding:8px;">Teste</th>
-                <th style="padding:8px;">Descrição</th>
-                <th style="padding:8px;">Resultado</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${results.map(r => `
-                <tr style="border-bottom:1px solid #e2e8f0;">
-                  <td style="padding:8px;"><strong>Teste ${r.id}</strong></td>
-                  <td style="padding:8px;">${r.name}<br><small style="color:#64748b;">${r.details}</small></td>
-                  <td style="padding:8px;">
-                    <span class="badge ${r.passed ? 'badge-viable' : 'badge-danger'}">
-                      ${r.passed ? 'PASS' : 'FAIL'}
-                    </span>
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        `;
-
-        modal.classList.remove('hidden');
-      });
-
-      if (btnClose) {
-        btnClose.addEventListener('click', () => modal.classList.add('hidden'));
+  loadProjectData(newProject, { persist = true, demo = false } = {}) {
+    if (persist) {
+      const saved = StorageManager.saveProject(newProject);
+      if (!saved.success) {
+        this.setSaveStatus(`Falha ao salvar: ${saved.error}`);
+        return;
       }
+      this.hasCorruptSavedProject = false;
     }
-  }
-
-  loadProjectData(newProject) {
     this.project = newProject;
-    StorageManager.saveProject(this.project);
+    this.isDemo = demo;
     this.formsUI.populateForms(this.project);
     this.itemsUI.setProject(this.project);
+    this.setSaveStatus(this.isDemo
+      ? 'Demonstração fictícia — seu planejamento salvo foi preservado.'
+      : 'Salvo neste dispositivo');
     this.recalculateAndRender();
+  }
+
+  setSaveStatus(message) {
+    const status = document.getElementById('saveStatus');
+    if (status) {
+      status.textContent = message;
+      status.title = message;
+    }
+  }
+
+  renderDataQualitySummary(result) {
+    const container = document.getElementById('dataQualitySummary');
+    if (!container) return;
+    const fragment = document.createDocumentFragment();
+    const heading = document.createElement('p');
+    heading.textContent = result.hasCompleteData
+      ? 'Os dados mínimos para esta projeção foram informados. Confira se as estimativas e premissas continuam corretas.'
+      : 'Análise preliminar: estas informações ainda são necessárias para concluir a avaliação.';
+    fragment.appendChild(heading);
+    if (result.viability.missingFieldLabels.length) {
+      const list = document.createElement('ul');
+      result.viability.missingFieldLabels.forEach(label => {
+        const item = document.createElement('li');
+        item.textContent = label;
+        list.appendChild(item);
+      });
+      fragment.appendChild(list);
+    }
+    const base = document.createElement('p');
+    base.textContent = `Data-base: ${result.baseDate}. Contingência protegida: R$ ${(result.contingencyProtectedCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`;
+    fragment.appendChild(base);
+    container.replaceChildren(fragment);
+  }
+
+  exportPreviousProjectBackup() {
+    try {
+      if (this.hasCorruptSavedProject) {
+        StorageManager.exportRawBackup();
+      } else {
+        const savedProject = this.isDemo ? StorageManager.loadProject() : this.project;
+        StorageManager.exportToJson(savedProject);
+      }
+      return true;
+    } catch (error) {
+      this.setSaveStatus(`Não foi possível gerar o backup: ${error.message}`);
+      alert(`Não foi possível gerar o backup. A operação foi cancelada e nenhum dado foi substituído.\n${error.message}`);
+      return false;
+    }
+  }
+
+  exportCurrentBackup() {
+    try {
+      if (this.hasCorruptSavedProject) StorageManager.exportRawBackup();
+      else StorageManager.exportToJson(this.project);
+      return true;
+    } catch (error) {
+      this.setSaveStatus(`Não foi possível exportar o backup: ${error.message}`);
+      alert(`Não foi possível exportar o backup.\n${error.message}`);
+      return false;
+    }
   }
 }
 
