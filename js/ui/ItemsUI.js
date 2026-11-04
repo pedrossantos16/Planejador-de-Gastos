@@ -1,4 +1,6 @@
-import { STRATEGY_LABELS, PRIORITY_LABELS, SCOPE_LABELS, STATUS_LABELS } from '../models/types.js';
+import {
+  STRATEGY_LABELS, PRIORITY_LABELS, SCOPE_LABELS, STATUS_LABELS, SCOPE_OPTIONS, SETTLED_STATUSES
+} from '../models/types.js';
 import { parseMoneyToCents, formatCentsToBrl } from '../models/money.js';
 import { FinancialEngine } from '../engine/FinancialEngine.js';
 
@@ -263,6 +265,11 @@ export class ItemsUI {
       alert('O custo de instalação não pode ser menor que a montagem já registrada.');
       return;
     }
+    const newStatus = document.getElementById('modalItemStatus').value;
+    if (isSettlementTransition(existing, newStatus) && basePriceCents) {
+      const confirmed = confirm(`Marcar como comprado/pago registra R$ ${formatCentsToBrl(basePriceCents)} como valor já pago, que não será debitado novamente do fluxo. Frete, montagem e instalação continuam pendentes. Confirmar?`);
+      if (!confirmed) return;
+    }
     const itemData = mergeItemEdit(existing, {
       id: itemId || ('item_' + Date.now()),
       roomId,
@@ -339,6 +346,39 @@ function textCell(text) {
   return cell;
 }
 
+export function isSettlementTransition(existing, newStatus) {
+  return SETTLED_STATUSES.includes(newStatus) && !SETTLED_STATUSES.includes(existing?.status);
+}
+
+function buildSettledPayments(item) {
+  const basePrice = item.basePriceCents ?? 0;
+  const paidPayments = (item.payments || []).filter(payment => payment.isPaid);
+  const paidTotal = paidPayments.reduce((sum, payment) => sum + payment.amountCents, 0);
+  const payments = paidPayments.map(payment => ({ ...payment }));
+  if (item.scope !== SCOPE_OPTIONS.ALREADY_OWNED && basePrice > paidTotal) {
+    payments.push({
+      amountCents: basePrice - paidTotal,
+      monthIndex: 0,
+      isPaid: true,
+      isDeposit: false,
+      description: 'Quitação registrada ao marcar o item como comprado',
+      source: 'status_change'
+    });
+  }
+  const accessories = (item.shippingCents ?? 0) + (item.assemblyCents ?? 0) +
+    (item.installationCents ?? 0) + (item.additionalCostsCents ?? 0);
+  if (accessories > 0) {
+    payments.push({
+      amountCents: accessories,
+      monthIndex: item.deliveryMonthIndex ?? 0,
+      isPaid: false,
+      isDeposit: false,
+      description: 'Custos acessórios pendentes (frete, montagem, instalação)'
+    });
+  }
+  return payments;
+}
+
 export function mergeItemEdit(existing, updates, assumptions) {
   const assemblyCents = existing?.assemblyCents || 0;
   const previousInstallationTotal = assemblyCents + (existing?.installationCents || 0);
@@ -351,6 +391,11 @@ export function mergeItemEdit(existing, updates, assumptions) {
     confidenceLevel: existing?.confidenceLevel ?? 'preliminary'
   };
   delete itemData.installationTotalCents;
+
+  if (isSettlementTransition(existing, itemData.status)) {
+    itemData.payments = buildSettledPayments(itemData);
+    return itemData;
+  }
 
   const costsChanged = !existing ||
     (existing.basePriceCents ?? null) !== updates.basePriceCents ||

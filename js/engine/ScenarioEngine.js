@@ -19,8 +19,12 @@ export class ScenarioEngine {
   static evaluateViability(result, project = null) {
     const reasons = [];
     const missingFields = result?.missingFields || [];
-    if (!result || !result.processedItems || result.processedItems.length === 0) {
-      reasons.push('Ainda não há itens suficientes para avaliar o planejamento.');
+    if (!result || !result.processedItems || result.selectedItemCount === 0 ||
+        result.processedItems.length === 0) {
+      reasons.push('Ainda não há itens incluídos no escopo para avaliar o planejamento.');
+    }
+    if (result?.postponedEssentialItems?.length) {
+      reasons.push(`Há itens essenciais adiados para depois da mudança: ${result.postponedEssentialItems.map(item => item.name).join(', ')}.`);
     }
     if (!result?.hasCompleteData || missingFields.length > 0) {
       reasons.push('Há dados essenciais não informados; esta análise é preliminar.');
@@ -36,10 +40,12 @@ export class ScenarioEngine {
     }
 
     let status = VIABILITY_STATUS.VIABLE;
-    if (!result || !result.processedItems?.length || !result.hasCompleteData || missingFields.length > 0) {
+    if (!result || !result.processedItems?.length || result.selectedItemCount === 0 ||
+        !result.hasCompleteData || missingFields.length > 0) {
       status = VIABILITY_STATUS.INSUFFICIENT_DATA;
     } else if (result.firstDeficitMonth !== null || result.hasFamilyBudgetDeficit ||
-        result.essentialItemsReadyBeforeMove === false) {
+        result.essentialItemsReadyBeforeMove === false ||
+        result.postponedEssentialItems?.length > 0) {
       status = VIABILITY_STATUS.REQUIRES_ADJUSTMENTS;
     } else {
       const selectedItems = result.processedItems.filter(item =>

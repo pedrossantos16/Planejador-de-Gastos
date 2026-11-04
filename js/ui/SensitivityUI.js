@@ -16,8 +16,8 @@ export class SensitivityUI {
           <div style="border:1px solid #e2e8f0; border-radius:8px; padding:16px; background:#ffffff;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
               <strong style="font-size:14px; color:#0f172a;">${risk.name}</strong>
-              <span class="badge ${risk.isViable ? 'badge-viable' : 'badge-danger'}">
-                ${risk.isViable ? 'Resistente' : 'Alerta de Risco'}
+              <span class="badge ${risk.isViable === null ? 'badge-warning' : risk.isViable ? 'badge-viable' : 'badge-danger'}">
+                ${risk.isViable === null ? 'Dados insuficientes' : risk.isViable ? 'Compatível' : 'Alerta de Risco'}
               </span>
             </div>
             <p style="font-size:13px; color:#475569; margin-top:4px;">${risk.impactText}</p>

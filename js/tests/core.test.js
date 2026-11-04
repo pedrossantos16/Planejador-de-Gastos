@@ -288,3 +288,119 @@ test('validar/importar é puro e falha sem substituir o projeto salvo', () => {
   assert.equal(memory.get('meu_ape_planejado_project'), original);
   StorageManager.setStorage(null);
 });
+
+function boughtItem(overrides = {}) {
+  return {
+    id: 'item-comprado',
+    name: 'Sofá',
+    scope: SCOPE_OPTIONS.INCLUDE,
+    priority: PRIORITY_OPTIONS.ESSENTIAL,
+    status: STATUS_OPTIONS.QUOTED,
+    basePriceCents: 100_000,
+    shippingCents: 10_000,
+    installationCents: 0,
+    assemblyCents: 0,
+    additionalCostsCents: 0,
+    deliveryMonthIndex: 5,
+    payments: [],
+    ...overrides
+  };
+}
+
+test('marcar item como comprado pelo formulário não gera novo débito da compra, mas mantém o frete', () => {
+  const quoted = boughtItem();
+  const merged = mergeItemEdit(quoted, {
+    ...quoted,
+    status: STATUS_OPTIONS.BOUGHT,
+    installationTotalCents: 0
+  }, {});
+  const project = projectWithBaseDate();
+  setSimpleBudget(project, 20_000, 0);
+  project.items = [merged];
+
+  const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+
+  assert.equal(result.monthlyLedger[5].paymentsThisMonthCents, 10_000);
+  assert.equal(result.monthlyLedger[0].paymentsThisMonthCents, 0);
+  assert.equal(result.firstDeficitMonth, null);
+});
+
+test('item comprado sem pagamentos registrados também não debita a compra de novo', () => {
+  const project = projectWithBaseDate();
+  setSimpleBudget(project, 0, 0);
+  project.items = [boughtItem({ status: STATUS_OPTIONS.BOUGHT, shippingCents: 0 })];
+  const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  assert.equal(result.firstDeficitMonth, null);
+});
+
+test('frete pendente de item comprado permanece mesmo quando o escopo vira excluído', () => {
+  const project = projectWithBaseDate();
+  setSimpleBudget(project, 100_000, 0);
+  project.items = [boughtItem({
+    status: STATUS_OPTIONS.BOUGHT,
+    scope: SCOPE_OPTIONS.EXCLUDE,
+    payments: [
+      { amountCents: 100_000, monthIndex: 1, isPaid: true },
+      { amountCents: 10_000, monthIndex: 5, isPaid: false, description: 'Frete' }
+    ]
+  })];
+  const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  assert.equal(result.monthlyLedger[5].paymentsThisMonthCents, 10_000);
+});
+
+test('item entregue não recebe reajuste de inflação', () => {
+  const project = projectWithBaseDate();
+  setSimpleBudget(project, 0, 0);
+  project.assumptions.annualInflationRate = 0.1;
+  project.assumptions.applyInflationToUncontracted = true;
+  project.items = [boughtItem({
+    status: STATUS_OPTIONS.DELIVERED, shippingCents: 0, deliveryMonthIndex: 36
+  })];
+  const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  assert.equal(result.totalIncludedCostCents, 100_000);
+});
+
+test('mudança no mesmo mês, mas antes das chaves, é rejeitada', () => {
+  const project = projectWithBaseDate();
+  setSimpleBudget(project, 0, 0);
+  project.apartment.keysDate = '2029-01-25';
+  project.apartment.moveDate = '2029-01-05';
+  assert.throws(() => FinancialEngine.calculate(project, { referenceDate: '2026-01-15' }), /antes da entrega/);
+});
+
+test('contingência é exigida a partir do primeiro desembolso, não do mês zero', () => {
+  const project = projectWithBaseDate();
+  setSimpleBudget(project, 0, 100_000);
+  project.assumptions.contingencyPercent = 0.1;
+  project.items = [boughtItem({
+    basePriceCents: 1_000_000, shippingCents: 0, deliveryMonthIndex: 36
+  })];
+  const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  assert.equal(result.contingencyStartMonth, 36);
+  assert.equal(result.firstDeficitMonth, null);
+  assert.equal(result.monthlyLedger[36].freeBalanceCents, 2_500_000);
+});
+
+test('projeto só com itens excluídos ou essencial adiado não é considerado viável', () => {
+  const project = projectWithBaseDate();
+  setSimpleBudget(project, 1_000_000, 100_000);
+  project.items = [boughtItem({ scope: SCOPE_OPTIONS.EXCLUDE })];
+  let result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  assert.equal(ScenarioEngine.evaluateViability(result).status, 'insufficient_data');
+
+  project.items = [
+    boughtItem({ id: 'a', scope: SCOPE_OPTIONS.POSTPONE }),
+    boughtItem({ id: 'b', priority: PRIORITY_OPTIONS.OPTIONAL })
+  ];
+  result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  assert.equal(ScenarioEngine.evaluateViability(result).status, 'requires_adjustments');
+});
+
+test('painel de riscos não aprova plano com dados insuficientes', () => {
+  const project = projectWithBaseDate();
+  project.budgetProfile.mode = 'simplified';
+  project.items = [boughtItem({ basePriceCents: null })];
+  const result = FinancialEngine.calculate(project, { referenceDate: '2026-01-15' });
+  const risks = Recommender.runRiskAnalysis(project, result);
+  assert.ok(risks.every(risk => risk.isViable === null));
+});

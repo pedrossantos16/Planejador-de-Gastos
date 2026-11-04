@@ -1,4 +1,6 @@
-import { SCOPE_OPTIONS, PRIORITY_OPTIONS, STATUS_OPTIONS } from '../models/types.js';
+import {
+  SCOPE_OPTIONS, PRIORITY_OPTIONS, STATUS_OPTIONS, FIRM_STATUSES, SETTLED_STATUSES
+} from '../models/types.js';
 
 const MAX_PROJECTION_MONTHS = 1200;
 
@@ -36,7 +38,7 @@ export class FinancialEngine {
     if (monthsToMove !== null && monthsToMove < 0) {
       throw new Error('A data da mudança é anterior à data-base.');
     }
-    if (monthsToKeys !== null && monthsToMove !== null && monthsToMove < monthsToKeys) {
+    if (keysDate && moveDate && moveDate < keysDate) {
       throw new Error('A mudança não pode estar prevista antes da entrega das chaves.');
     }
 
@@ -53,8 +55,7 @@ export class FinancialEngine {
     const monthlyPaymentDetails = Array.from({ length: horizonMonths + 1 }, () => []);
 
     processedItems.forEach(item => {
-      const commitmentExists = item.status === STATUS_OPTIONS.CONTRACTED ||
-        item.status === STATUS_OPTIONS.PAID_PARTIAL;
+      const commitmentExists = FIRM_STATUSES.includes(item.status);
       const selectedForPlan = item.scope === SCOPE_OPTIONS.INCLUDE ||
         item.scope === SCOPE_OPTIONS.ALREADY_OWNED || commitmentExists;
       if (!selectedForPlan) return;
@@ -117,6 +118,9 @@ export class FinancialEngine {
     const contingencyProtectedCents = Math.round(
       totalIncludedCostCents * (assumptions.contingencyPercent ?? 0)
     );
+    // A reserva só é exigida a partir do primeiro desembolso previsto; antes disso ela está em formação.
+    const firstPaymentMonth = monthlyProjectPayments.findIndex(amount => amount > 0);
+    const contingencyStartMonth = firstPaymentMonth === -1 ? 0 : firstPaymentMonth;
     const monthlyLedger = [];
     let currentBalanceCents = initialBalanceCents;
     let totalContributionsCents = 0;
@@ -164,7 +168,8 @@ export class FinancialEngine {
       const paymentsThisMonthCents = monthlyProjectPayments[month];
       const endBalanceCents = startBalanceCents + plannedContributionCents +
         extraIncomeMonthCents + yieldCents - paymentsThisMonthCents;
-      const freeBalanceCents = endBalanceCents - contingencyProtectedCents;
+      const requiredReserveCents = month >= contingencyStartMonth ? contingencyProtectedCents : 0;
+      const freeBalanceCents = endBalanceCents - requiredReserveCents;
 
       if (freeBalanceCents < 0) {
         const deficit = Math.abs(freeBalanceCents);
@@ -187,7 +192,7 @@ export class FinancialEngine {
         paymentsThisMonthCents,
         endBalanceCents,
         freeBalanceCents,
-        contingencyProtectedCents,
+        contingencyProtectedCents: requiredReserveCents,
         familyBudgetDeficitCents,
         paymentDetails: monthlyPaymentDetails[month]
       });
@@ -199,6 +204,10 @@ export class FinancialEngine {
     let totalOptionalCostCents = 0;
     let essentialItemsReadyBeforeMove = monthsToMove === null ? null : true;
     const delayedEssentialItems = [];
+    const postponedEssentialItems = processedItems.filter(item =>
+      item.scope === SCOPE_OPTIONS.POSTPONE && item.priority === PRIORITY_OPTIONS.ESSENTIAL);
+    const selectedItemCount = processedItems.filter(item =>
+      item.scope === SCOPE_OPTIONS.INCLUDE || item.scope === SCOPE_OPTIONS.ALREADY_OWNED).length;
 
     processedItems.forEach(item => {
       if (item.scope !== SCOPE_OPTIONS.INCLUDE && item.scope !== SCOPE_OPTIONS.ALREADY_OWNED) return;
@@ -233,6 +242,9 @@ export class FinancialEngine {
       totalOptionalCostCents,
       totalIncludedCostCents,
       contingencyProtectedCents,
+      contingencyStartMonth,
+      postponedEssentialItems,
+      selectedItemCount,
       totalContributionsCents,
       finalBalanceCents: monthlyLedger[horizonMonths].endBalanceCents,
       finalFreeBalanceCents: monthlyLedger[horizonMonths].freeBalanceCents,
@@ -255,12 +267,11 @@ export class FinancialEngine {
       'basePriceCents', 'shippingCents', 'assemblyCents',
       'installationCents', 'additionalCostsCents'
     ], `item "${item.name || item.id || ''}"`);
-    const isContracted = item.status === STATUS_OPTIONS.CONTRACTED ||
-      item.status === STATUS_OPTIONS.PAID_PARTIAL;
+    const isFirm = FIRM_STATUSES.includes(item.status);
+    const isSettled = SETTLED_STATUSES.includes(item.status);
     const annualInflation = assumptions.annualInflationRate ?? 0;
     const applyInflation = !!assumptions.applyInflationToUncontracted &&
-      !isContracted && item.status !== STATUS_OPTIONS.BOUGHT &&
-      item.status !== STATUS_OPTIONS.INSTALLED && annualInflation > 0;
+      !isFirm && annualInflation > 0;
     const basePrice = item.basePriceCents ?? 0;
     const accessoryCosts = (item.shippingCents ?? 0) + (item.assemblyCents ?? 0) +
       (item.installationCents ?? 0) + (item.additionalCostsCents ?? 0);
@@ -288,7 +299,7 @@ export class FinancialEngine {
       const pendingPayments = item.payments.filter(payment => !payment.isPaid);
       calculatedPayments = [...paidPayments.map(payment => ({ ...payment }))];
 
-      if (isContracted) {
+      if (isFirm) {
         calculatedPayments.push(...pendingPayments.map(payment => ({ ...payment })));
       } else {
         const paidTotal = paidPayments.reduce((sum, payment) => sum + payment.amountCents, 0);
@@ -312,6 +323,21 @@ export class FinancialEngine {
             isDeposit: false
           });
         }
+      }
+    } else if (isSettled) {
+      // Compra principal já quitada; só custos acessórios ainda são devidos.
+      calculatedPayments = [];
+      if (basePrice > 0 && item.scope !== SCOPE_OPTIONS.ALREADY_OWNED) {
+        calculatedPayments.push({
+          amountCents: basePrice, monthIndex: 0, isPaid: true,
+          description: 'Compra registrada como paga', isDeposit: false
+        });
+      }
+      if (accessoryCosts > 0) {
+        calculatedPayments.push({
+          amountCents: accessoryCosts, monthIndex: deliveryMonth, isPaid: false,
+          description: 'Custos acessórios pendentes', isDeposit: false
+        });
       }
     } else {
       calculatedPayments = totalInstalledCostCents > 0 ? [{
