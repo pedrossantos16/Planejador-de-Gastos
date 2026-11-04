@@ -11,6 +11,25 @@ export class DashboardUI {
     this.renderLedgerTable(result);
   }
 
+  static renderInvalid(message) {
+    const banner = document.getElementById('resultsBanner');
+    if (banner) {
+      const wrapper = document.createElement('div');
+      const badge = document.createElement('span');
+      badge.className = 'badge badge-danger';
+      badge.textContent = 'ANÁLISE INDISPONÍVEL';
+      const title = document.createElement('h2');
+      title.textContent = 'Corrija os dados para recalcular o plano';
+      const detail = document.createElement('p');
+      detail.textContent = `${message} Os resultados anteriores foram ocultados para não misturar versões diferentes do projeto. O backup JSON continua disponível.`;
+      wrapper.append(badge, title, detail);
+      banner.replaceChildren(wrapper);
+    }
+    ['scenariosGrid', 'recommendationsContainer', 'ledgerTableBody'].forEach(id => {
+      document.getElementById(id)?.replaceChildren();
+    });
+  }
+
   /**
    * Renderiza o banner executivo de diagnóstico
    */

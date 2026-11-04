@@ -79,30 +79,58 @@ class App {
   }
 
   recalculateAndRender() {
-    // Executar cálculo financeiro determinístico
     try {
-      this.financialResult = FinancialEngine.calculate(this.project);
-      this.financialResult.viability = ScenarioEngine.evaluateViability(this.financialResult, this.project);
+      const result = FinancialEngine.calculate(this.project);
+      result.viability = ScenarioEngine.evaluateViability(result, this.project);
+      const scenarios = ScenarioEngine.generateScenarios(this.project);
+      const recommendation = Recommender.analyze(this.project, result, scenarios);
+      this.financialResult = result;
+      this.scenarios = scenarios;
+      this.recommendation = recommendation;
+      this.analysisError = null;
     } catch (error) {
-      this.setSaveStatus(`Não foi possível calcular: ${error.message}`);
+      // Nunca manter um resultado de uma versão anterior do projeto.
+      this.financialResult = null;
+      this.scenarios = null;
+      this.recommendation = null;
+      this.analysisError = error.message;
       console.error('Falha ao calcular o planejamento:', error);
+      this.setSaveStatus(`Não foi possível calcular: ${error.message}`);
+      DashboardUI.renderInvalid(error.message);
+      const risk = document.getElementById('riskCardContainer');
+      if (risk) risk.replaceChildren();
+      const quality = document.getElementById('dataQualitySummary');
+      if (quality) quality.replaceChildren();
+      this.updateExportAvailability();
       return;
     }
 
-    // Executar simulação de cenários
-    this.scenarios = ScenarioEngine.generateScenarios(this.project);
+    this.updateExportAvailability();
     this.renderDataQualitySummary(this.financialResult);
-
-    // Diagnóstico e Recomendações
-    this.recommendation = Recommender.analyze(this.project, this.financialResult, this.scenarios);
-
-    // Renderizar Dashboard na Etapa 5
     DashboardUI.render(this.project, this.financialResult, this.scenarios, this.recommendation);
 
     const riskContainer = document.getElementById('riskCardContainer');
     if (riskContainer) {
       SensitivityUI.render(riskContainer, this.recommendation.riskAnalysis);
     }
+  }
+
+  updateExportAvailability() {
+    ['btnExportPdfExec', 'btnExportPdfDet', 'btnExportExcel', 'btnExportCsvItems', 'btnExportCsvLedger']
+      .forEach(id => {
+        const button = document.getElementById(id);
+        if (!button) return;
+        button.disabled = !this.financialResult;
+        button.title = this.financialResult
+          ? ''
+          : 'Corrija os dados do planejamento para gerar esta exportação.';
+      });
+  }
+
+  requireCurrentAnalysis() {
+    if (this.financialResult) return true;
+    alert(`A análise está desatualizada ou inválida: ${this.analysisError || 'recalcule o planejamento'}. Corrija os dados antes de exportar.`);
+    return false;
   }
 
   bindHeaderEvents() {
@@ -201,27 +229,27 @@ class App {
   bindExportEvents() {
     const btnPdfExec = document.getElementById('btnExportPdfExec');
     if (btnPdfExec) {
-      btnPdfExec.addEventListener('click', () => PdfExporter.exportToPdf(this.project, this.financialResult, false));
+      btnPdfExec.addEventListener('click', () => this.requireCurrentAnalysis() && PdfExporter.exportToPdf(this.project, this.financialResult, false));
     }
 
     const btnPdfDet = document.getElementById('btnExportPdfDet');
     if (btnPdfDet) {
-      btnPdfDet.addEventListener('click', () => PdfExporter.exportToPdf(this.project, this.financialResult, true));
+      btnPdfDet.addEventListener('click', () => this.requireCurrentAnalysis() && PdfExporter.exportToPdf(this.project, this.financialResult, true));
     }
 
     const btnExcel = document.getElementById('btnExportExcel');
     if (btnExcel) {
-      btnExcel.addEventListener('click', () => ExcelExporter.exportToExcel(this.project, this.financialResult));
+      btnExcel.addEventListener('click', () => this.requireCurrentAnalysis() && ExcelExporter.exportToExcel(this.project, this.financialResult));
     }
 
     const btnCsvItems = document.getElementById('btnExportCsvItems');
     if (btnCsvItems) {
-      btnCsvItems.addEventListener('click', () => CsvExporter.exportItemsCsv(this.project, this.financialResult));
+      btnCsvItems.addEventListener('click', () => this.requireCurrentAnalysis() && CsvExporter.exportItemsCsv(this.project, this.financialResult));
     }
 
     const btnCsvLedger = document.getElementById('btnExportCsvLedger');
     if (btnCsvLedger) {
-      btnCsvLedger.addEventListener('click', () => CsvExporter.exportLedgerCsv(this.project, this.financialResult));
+      btnCsvLedger.addEventListener('click', () => this.requireCurrentAnalysis() && CsvExporter.exportLedgerCsv(this.project, this.financialResult));
     }
 
     const btnExportJson = document.getElementById('btnExportJson');

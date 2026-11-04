@@ -36,6 +36,8 @@ export class Recommender {
         recommendation.summaryText = `O primeiro déficit é de R$ ${deficitVal} no mês ${monthNum}. O pior déficit é de R$ ${worstDeficit} no mês ${viability.worstDeficitMonth}. Verifique as propostas antes de assumir mudanças.`;
       } else if (!financialResult.essentialItemsReadyBeforeMove) {
         recommendation.summaryText = 'Um ou mais itens essenciais estão com prazo de entrega previsto para APÓS a data de mudança desejada.';
+      } else if (financialResult.postponedEssentialItems?.length) {
+        recommendation.summaryText = `Itens essenciais foram adiados para depois da mudança: ${financialResult.postponedEssentialItems.map(item => item.name).join(', ')}. O apartamento só estará pronto quando eles forem incluídos.`;
       } else {
         recommendation.summaryText = 'Suas despesas recorrentes e obrigações do imóvel excedem a renda informada no modo detalhado.';
       }
@@ -92,43 +94,59 @@ export class Recommender {
 
     // 3. Imprevisto: Redução de 25% na capacidade de aporte mensal
     const reducedCapProject = JSON.parse(JSON.stringify(project));
-    if (reducedCapProject.budgetProfile.mode === 'simplified') {
-      reducedCapProject.budgetProfile.simplified.monthlyCapCents = Math.round(
-        reducedCapProject.budgetProfile.simplified.monthlyCapCents * 0.75
-      );
-    } else {
-      reducedCapProject.budgetProfile.detailed.monthlyCapCents = Math.round(
-        reducedCapProject.budgetProfile.detailed.monthlyCapCents * 0.75
-      );
-    }
+    const reduceCap = data => {
+      if (Number.isSafeInteger(data.monthlyCapCents)) {
+        data.monthlyCapCents = Math.round(data.monthlyCapCents * 0.75);
+      }
+    };
+    reduceCap(reducedCapProject.budgetProfile.mode === 'simplified'
+      ? reducedCapProject.budgetProfile.simplified
+      : reducedCapProject.budgetProfile.detailed);
     const reducedCapResult = FinancialEngine.calculate(reducedCapProject);
+
+    const fmt = cents => (cents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    const evaluate = (result, scenarioProject, deficitText, okText) => {
+      const viability = ScenarioEngine.evaluateViability(result, scenarioProject);
+      if (viability.status === VIABILITY_STATUS.INSUFFICIENT_DATA) {
+        return { isViable: null, impactText: 'Não avaliável: faltam dados essenciais do plano (veja a revisão de dados).' };
+      }
+      const isViable = viability.status === VIABILITY_STATUS.VIABLE ||
+        viability.status === VIABILITY_STATUS.ESSENTIAL_ONLY;
+      return {
+        isViable,
+        impactText: isViable ? okText : (deficitText(result) || viability.reasons.join(' '))
+      };
+    };
 
     return [
       {
         id: 'risk_price_surge',
         name: 'Hipótese: choque único de preços (+15%)',
-        impactText: priceSurgeResult.firstDeficitMonth !== null
-          ? `Gera déficit no Mês ${priceSurgeResult.firstDeficitMonth} (R$ ${(priceSurgeResult.maxDeficitCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`
-          : 'Plano continua viável mesmo com aumento de 15%.',
-        isViable: priceSurgeResult.firstDeficitMonth === null,
+        ...evaluate(priceSurgeResult, project,
+          result => result.firstDeficitMonth !== null
+            ? `Gera déficit no Mês ${result.firstDeficitMonth} (R$ ${fmt(result.maxDeficitCents)})`
+            : '',
+          'O plano continua compatível com as premissas mesmo com aumento de 15%.'),
         extraCostCents: priceSurgeResult.totalIncludedCostCents - baseResult.totalIncludedCostCents
       },
       {
         id: 'risk_delayed_keys',
         name: 'Atraso na Entrega das Chaves (+6 meses)',
-        impactText: delayedKeysResult.firstDeficitMonth !== null
-          ? `Adia aportes e gera ajuste no Mês ${delayedKeysResult.firstDeficitMonth}.`
-          : 'Permite acumular mais 6 meses de aportes, aumentando a reserva final.',
-        isViable: delayedKeysResult.firstDeficitMonth === null,
+        ...evaluate(delayedKeysResult, delayedKeysProject,
+          result => result.firstDeficitMonth !== null
+            ? `Gera déficit no Mês ${result.firstDeficitMonth}.`
+            : '',
+          'O plano continua compatível com as premissas com seis meses de atraso.'),
         extraCostCents: 0
       },
       {
         id: 'risk_reduced_capacity',
         name: 'Queda de 25% nos Aportes Mensais',
-        impactText: reducedCapResult.firstDeficitMonth !== null
-          ? `Gera déficit acumulado no Mês ${reducedCapResult.firstDeficitMonth} de R$ ${(reducedCapResult.maxDeficitCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-          : 'Ainda sustentável com teto de aporte reduzido.',
-        isViable: reducedCapResult.firstDeficitMonth === null,
+        ...evaluate(reducedCapResult, reducedCapProject,
+          result => result.firstDeficitMonth !== null
+            ? `Gera déficit no Mês ${result.firstDeficitMonth} de R$ ${fmt(result.maxDeficitCents)}`
+            : '',
+          'O plano continua compatível com as premissas com o teto de aporte reduzido.'),
         extraCostCents: 0
       }
     ];

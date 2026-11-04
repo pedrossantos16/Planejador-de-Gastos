@@ -28,6 +28,11 @@ export const STATUS_OPTIONS = {
   INSTALLED: 'installed'         // Instalado e pronto para uso
 };
 
+// Itens com preço fechado: não sofrem reajuste e suas parcelas pendentes são compromissos.
+export const FIRM_STATUSES = ['contracted', 'paid_partial', 'bought', 'delivered', 'installed'];
+// Itens cuja compra principal já foi quitada.
+export const SETTLED_STATUSES = ['bought', 'delivered', 'installed'];
+
 export const STRATEGY_OPTIONS = {
   FACTORY_PLANNED: 'factory_planned', // Planejados de fábrica / loja
   CUSTOM_WOODWORK: 'custom_woodwork', // Marcenaria sob medida

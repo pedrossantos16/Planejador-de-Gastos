@@ -22,7 +22,10 @@ Aplicação estática em HTML, CSS e JavaScript ES modules, compatível com publ
 - A data-base fica registrada no projeto. Mês 0 representa o saldo inicial; aportes mensais começam no mês 1.
 - Os pagamentos mantêm seus meses originais e a projeção se estende até o último compromisso, limitada a 100 anos para evitar entrada malformada.
 - Valores monetários são centavos inteiros. Campo vazio representa dado desconhecido; zero informado representa zero.
-- A contingência é uma parcela protegida calculada sobre o custo total incluído e reduz o saldo livre, sem virar pagamento.
+- A contingência é uma parcela protegida calculada sobre o custo total incluído e reduz o saldo livre, sem virar pagamento. Ela só é exigida a partir do primeiro desembolso previsto; antes disso é considerada em formação.
+- Itens comprado/entregue/instalado e contratado/pago parcialmente têm preço fechado: não recebem reajuste, a compra principal é tratada como paga e parcelas pendentes (frete, montagem, instalação) permanecem no fluxo mesmo se o escopo mudar. Marcar um item como comprado pede confirmação.
+- Se os dados forem inválidos (por exemplo, mudança antes das chaves), o resultado anterior é descartado e as exportações analíticas ficam bloqueadas até corrigir; o backup JSON continua disponível.
+- Cada hipótese do painel de riscos usa a mesma regra de viabilidade do plano; dados insuficientes aparecem como "não avaliável".
 - Prévia PDF abre uma janela de impressão; escolha **Salvar como PDF** no diálogo do navegador. XLSX contém valores calculados, não fórmulas vivas; alterações na planilha não recalculam o site.
 
 ## Limitações atuais
