@@ -37,40 +37,40 @@
     </div>
   </header>
 
-  <!-- BARRA DE PROGRESSO DO WIZARD (5 ETAPAS) -->
+  <!-- BARRA DE PROGRESSO DO WIZARD -->
   <nav class="wizard-nav" id="wizardNav" aria-label="Etapas do planejamento">
     <div class="wizard-steps-container">
       <button class="wizard-step active" data-step="1">
         <span class="step-num">1</span>
-        <span class="step-label">Meu Apê e Prazo</span>
+        <span class="step-label">Meu imóvel</span>
       </button>
       <button class="wizard-step" data-step="2">
         <span class="step-num">2</span>
-        <span class="step-label">Meu Orçamento</span>
+        <span class="step-label">Como quero viver</span>
       </button>
       <button class="wizard-step" data-step="3">
         <span class="step-num">3</span>
-        <span class="step-label">Ambientes e Itens</span>
+        <span class="step-label">Estilo e espaço</span>
       </button>
       <button class="wizard-step" data-step="4">
         <span class="step-num">4</span>
-        <span class="step-label">Revisar Premissas</span>
+        <span class="step-label">Meu orçamento</span>
       </button>
       <button class="wizard-step" data-step="5">
         <span class="step-num">5</span>
-        <span class="step-label">Meu Plano e Arquivos</span>
+        <span class="step-label">Meu plano financeiro</span>
       </button>
     </div>
   </nav>
 
   <!-- CONTEÚDO PRINCIPAL (SPA) -->
-  <main class="main-content container">
+  <main id="residentialPlanner" class="main-content container">
 
     <!-- TELA DE BOAS-VINDAS / LANDING INICIAL (Visível se for novo projeto) -->
     <section id="welcomeBanner" class="welcome-card card">
       <div class="welcome-header">
         <h2>Planeje a mobília e mudança do seu apê sem surpresas financeiras</h2>
-        <p>Saiba quanto vai custar, quando comprar cada item e se o seu orçamento mensal é suficiente para chegar no dia da mudança com o essencial pronto.</p>
+        <p>Conte como quer viver no seu apartamento. O planejamento ajuda a transformar essas prioridades em necessidades, medidas e um plano financeiro — sem exigir que você escolha os móveis primeiro.</p>
       </div>
       <div class="welcome-actions">
         <button id="btnStartWizard" class="btn btn-primary btn-lg">🚀 Começar Meu Planejamento</button>
@@ -106,6 +106,16 @@
               <input type="number" id="residentsCount" min="1" max="10" class="form-control">
             </div>
           </div>
+          <div class="form-group">
+            <label for="canStoreEarlyPurchases">Pode guardar compras antes da mudança?</label>
+            <select id="canStoreEarlyPurchases" class="form-control">
+              <option value="unknown">Ainda não sei</option><option value="yes">Sim</option><option value="no">Não</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="memorialNotes">Memorial descritivo (resumo opcional)</label>
+            <textarea id="memorialNotes" class="form-control" rows="3" placeholder="Acabamentos, bancadas, pontos ou outros itens entregues"></textarea>
+          </div>
           <div class="form-group checkbox-group">
             <label><input type="checkbox" id="isHomeOffice"> Alguém trabalha em home office</label>
             <label><input type="checkbox" id="hasChildren"> Crianças na residência</label>
@@ -140,168 +150,224 @@
 
       <div class="step-footer">
         <div></div>
-        <button class="btn btn-primary btn-next" data-next="2">Avançar para Orçamento ➔</button>
+        <button class="btn btn-primary btn-next" data-next="2">Avançar para como quero viver ➔</button>
       </div>
     </section>
 
-    <!-- ETAPA 2: MEU ORÇAMENTO -->
+    <!-- ETAPA 2: COMO QUERO VIVER -->
     <section id="step2" class="wizard-section">
       <div class="section-header">
-        <h2>Etapa 2: Planejamento Financeiro e Capacidade</h2>
-        <p>Defina como você deseja calcular a sua capacidade mensal de guardar dinheiro para o apê.</p>
+        <h2>Etapa 2: Como você quer viver no apartamento?</h2>
+        <p>Priorize funções e experiências, não produtos. As sugestões poderão ser aceitas, removidas ou ajustadas depois.</p>
+      </div>
+        <div class="card">
+          <h3>O que importa no dia a dia?</h3>
+          <p class="help-text">Use Alta, Média, Baixa ou “Não preciso disso”.</p>
+          <div id="goalPriorityGrid" class="goal-priority-grid"></div>
+        </div>
+        <div class="card form-card">
+          <h3>Móveis e equipamentos que já existem</h3>
+          <label for="existingFurniture">Liste os itens que pretende levar, separados por vírgula</label>
+          <textarea id="existingFurniture" class="form-control" rows="3" placeholder="Ex.: cama, geladeira, mesa de jantar"></textarea>
+          <small class="help-text">Eles serão considerados para evitar sugestões duplicadas. Você poderá revisar a lista depois.</small>
+        </div>
+      <div class="step-footer">
+        <button class="btn btn-secondary btn-prev" data-prev="1">⬅ Voltar</button>
+        <button class="btn btn-primary btn-next" data-next="3">Avançar para estilo e espaço ➔</button>
+      </div>
+    </section>
+
+    <!-- ETAPA 3: ESTILO E MEU ESPAÇO -->
+    <section id="step3" class="wizard-section">
+      <div class="section-header">
+      <h2>Etapa 3: Estilo, medidas e sugestões</h2>
+      <p>Você não precisa conhecer materiais ou tamanhos de móveis. Informe suas preferências e, se souber, as medidas dos ambientes.</p>
+      </div>
+
+      <div id="stylePreferences" class="card">
+      <h3>Preferências estéticas</h3>
+      <div class="form-grid style-grid">
+        <div class="form-card">
+          <h4>Estilos de que gosta</h4>
+          <div id="likedStyleCards" class="style-choice-grid"></div>
+        </div>
+        <div class="form-card">
+          <h4>Estilos que deseja evitar</h4>
+          <div id="dislikedStyleCards" class="style-choice-grid"></div>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="styleColors">Cores preferidas</label>
+          <input id="styleColors" class="form-control" placeholder="Ex.: tons claros, verde, azul">
+        </div>
+        <div class="form-group">
+          <label for="styleAvoidColors">Cores que deseja evitar</label>
+          <input id="styleAvoidColors" class="form-control" placeholder="Opcional">
+        </div>
+        <div class="form-group">
+          <label for="woodTone">Tonalidade de madeira</label>
+          <select id="woodTone" class="form-control">
+            <option value="no_preference">Sem preferência</option>
+            <option value="light">Clara</option><option value="medium">Média</option><option value="dark">Escura</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="styleDensity">Ambiente</label>
+          <select id="styleDensity" class="form-control">
+            <option value="clean">Mais clean</option><option value="balanced">Equilibrado</option><option value="filled">Mais preenchido</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="furniturePresence">Móveis</label>
+          <select id="furniturePresence" class="form-control">
+            <option value="no_preference">Sem preferência</option><option value="discreet">Discretos</option><option value="statement">De destaque</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="styleLines">Linhas</label>
+          <select id="styleLines" class="form-control">
+            <option value="no_preference">Sem preferência</option><option value="straight">Retas</option><option value="curved">Curvas</option><option value="mixed">Mistas</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="styleUniformity">Uniformidade entre ambientes</label>
+          <select id="styleUniformity" class="form-control">
+            <option value="low">Baixa</option><option value="medium">Média</option><option value="high">Alta</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="styleReferences">Links de referência (opcional)</label>
+          <textarea id="styleReferences" class="form-control" rows="2" placeholder="Links de imagens ou ambientes que representam seu estilo"></textarea>
+          <label for="styleReferenceFiles" class="reference-upload">Escolher imagens de referência (máximo 3; PNG, JPG ou WebP até 400 KB)</label>
+          <input id="styleReferenceFiles" type="file" accept="image/png,image/jpeg,image/webp" multiple class="form-control">
+          <p id="referenceImageStatus" class="help-text" aria-live="polite"></p>
+          <div id="styleReferencePreviews" class="reference-image-grid"></div>
+        </div>
+      </div>
+      </div>
+
+      <div id="purchasePreferences" class="card">
+      <h3>Preferências de compra</h3>
+      <p class="help-text">Respostas indicam preferência, não excluem automaticamente alternativas.</p>
+      <div class="form-grid">
+        <div class="form-group"><label for="buyUsed">Aceita móveis usados?</label><select id="buyUsed" class="form-control"><option value="no_preference">Sem preferência</option><option value="yes">Sim</option><option value="no">Não</option></select></div>
+        <div class="form-group"><label for="buyReadyMade">Aceita móveis prontos?</label><select id="buyReadyMade" class="form-control"><option value="no_preference">Sem preferência</option><option value="yes">Sim</option><option value="no">Não</option></select></div>
+        <div class="form-group"><label for="buyModular">Aceita móveis modulados?</label><select id="buyModular" class="form-control"><option value="no_preference">Sem preferência</option><option value="yes">Sim</option><option value="no">Não</option></select></div>
+        <div class="form-group"><label for="buyPlanned">Aceita móveis planejados?</label><select id="buyPlanned" class="form-control"><option value="no_preference">Sem preferência</option><option value="yes">Sim</option><option value="no">Não</option></select></div>
+        <div class="form-group"><label for="buyDurability">Pagar mais por durabilidade?</label><select id="buyDurability" class="form-control"><option value="no_preference">Sem preferência</option><option value="yes">Sim</option><option value="no">Não</option></select></div>
+        <div class="form-group"><label for="buyObjective">Prioridade de compra</label><select id="buyObjective" class="form-control"><option value="price">Menor preço</option><option value="value">Custo-benefício</option><option value="durability">Durabilidade</option></select></div>
+        <div class="form-group"><label for="preferredBrands">Marcas que prefere (opcional)</label><input id="preferredBrands" class="form-control"></div>
+        <div class="form-group"><label for="rejectedBrands">Marcas que deseja evitar (opcional)</label><input id="rejectedBrands" class="form-control"></div>
+      </div>
+      </div>
+
+      <div class="card">
+      <h3>Meu espaço</h3>
+      <p class="help-text">Medidas em centímetros. Portas, janelas e obstáculos são opcionais, mas ajudam a evitar sugestões incompatíveis. A planta é esquemática e precisa ser conferida.</p>
+      <div id="roomGeometryList" class="room-geometry-list"></div>
+      </div>
+
+      <div class="card">
+      <div class="section-header-actions">
+        <div><h3>Necessidades sugeridas</h3><p id="suggestionSummary" class="help-text"></p></div>
+      </div>
+      <div id="suggestedNeedsList" class="suggested-needs-list"></div>
+      </div>
+
+      <div class="card">
+      <div class="section-header-actions">
+        <div><h3>Planta 2D preliminar</h3><p class="help-text">O desenho posiciona envelopes dimensionais sem selecionar produtos ou declarar uma solução ótima.</p></div>
+        <label for="layoutRoomSelect">Ambiente<select id="layoutRoomSelect" class="form-control"></select></label>
+      </div>
+      <div class="layout-preview"><svg id="layoutSvg" role="img" aria-label="Planta 2D preliminar"></svg></div>
+      <p id="layoutStatus" class="help-text" aria-live="polite"></p>
+      </div>
+
+      <details class="advanced-items" id="advancedItems">
+      <summary>Avançado: ajustar móveis, custos e pagamentos manualmente</summary>
+      <div class="section-header-actions">
+        <div><h3>Controle financeiro de itens</h3><p>O motor financeiro existente permanece disponível; itens sugeridos só entram nele quando você solicita.</p></div>
+        <button id="btnAddItemModal" class="btn btn-success">+ Adicionar Item</button>
+      </div>
+      <div class="room-tabs-bar" id="roomTabsBar"></div>
+      <div class="card items-container-card">
+        <div class="items-table-wrapper">
+          <table class="items-table" id="itemsTable">
+            <thead><tr><th>Item / Especificação</th><th>Estratégia</th><th>Prioridade</th><th>Escopo</th><th>Situação</th><th>Custo Total (R$)</th><th>Ações</th></tr></thead>
+            <tbody id="itemsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+      </details>
+
+      <div class="step-footer">
+      <button class="btn btn-secondary btn-prev" data-prev="2">⬅ Voltar</button>
+      <button class="btn btn-primary btn-next" data-next="4">Avançar para orçamento ➔</button>
+      </div>
+    </section>
+
+    <!-- ETAPA 4: ORÇAMENTO E PREMISSAS -->
+    <section id="step4" class="wizard-section">
+      <div class="section-header">
+        <h2>Etapa 4: Orçamento e premissas</h2>
+        <p>Agora informe sua capacidade financeira. As sugestões de necessidades não presumem preços nem entram no cálculo até serem adicionadas ao controle financeiro.</p>
       </div>
 
       <div class="card budget-mode-card">
         <div class="mode-selector">
           <label class="mode-option active">
             <input type="radio" name="budgetMode" value="simplified" checked>
-            <span class="mode-content" style="display:block;">
-              <strong>Modo Simplificado</strong>
-              <span>"Já sei quanto posso reservar por mês e qual o meu saldo atual."</span>
-            </span>
+            <span class="mode-content"><strong>Modo Simplificado</strong><span>Já sei quanto posso reservar por mês e qual o saldo atual.</span></span>
           </label>
           <label class="mode-option">
             <input type="radio" name="budgetMode" value="detailed">
-            <span class="mode-content" style="display:block;">
-              <strong>Modo Detalhado</strong>
-              <span>"Ajude-me a calcular quanto cabe no meu orçamento familiar."</span>
-            </span>
+            <span class="mode-content"><strong>Modo Detalhado</strong><span>Quero calcular quanto cabe no orçamento familiar.</span></span>
           </label>
         </div>
       </div>
 
-      <!-- FORMULÁRIO MODO SIMPLIFICADO -->
       <div id="simplifiedBudgetForm" class="form-grid">
         <div class="card form-card">
-          <h3>Saldo e Aportes</h3>
+          <h3>Saldo e aportes</h3>
           <div class="form-group">
-            <label for="simpInitialBalance">Saldo Disponível Exclusivo para este Projeto (R$)</label>
+            <label for="simpInitialBalance">Saldo reservado exclusivamente para este projeto (R$)</label>
             <input type="text" id="simpInitialBalance" placeholder="10.000,00" class="form-control money-input">
-            <small class="help-text">Dinheiro que já está guardado e reservado apenas para o apê.</small>
+            <small class="help-text">Dinheiro já guardado e reservado apenas para o apartamento.</small>
           </div>
           <div class="form-group">
-            <label for="simpMonthlyCap">Teto de Aporte Mensal Pretendido (R$)</label>
+            <label for="simpMonthlyCap">Aporte mensal pretendido (R$)</label>
             <input type="text" id="simpMonthlyCap" placeholder="1.500,00" class="form-control money-input">
-            <small class="help-text">Quanto você pretende guardar todos os meses até a mudança.</small>
+            <small class="help-text">Quanto pretende guardar todos os meses até a mudança.</small>
           </div>
         </div>
       </div>
 
-      <!-- FORMULÁRIO MODO DETALHADO -->
       <div id="detailedBudgetForm" class="form-grid hidden">
         <div class="card form-card">
-          <h3>Receitas e Despesas de Vida</h3>
+          <h3>Receitas e despesas de vida</h3>
           <div class="form-row">
-            <div class="form-group">
-              <label for="detInitialBalance">Saldo reservado exclusivamente para este projeto (R$)</label>
-              <input type="text" id="detInitialBalance" placeholder="Informe se houver" class="form-control money-input">
-            </div>
-            <div class="form-group">
-              <label for="detMonthlyCap">Teto mensal autorizado para o projeto (R$)</label>
-              <input type="text" id="detMonthlyCap" placeholder="Informe quanto pode reservar" class="form-control money-input">
-            </div>
+            <div class="form-group"><label for="detInitialBalance">Saldo reservado para este projeto (R$)</label><input type="text" id="detInitialBalance" placeholder="Informe se houver" class="form-control money-input"></div>
+            <div class="form-group"><label for="detMonthlyCap">Teto mensal autorizado (R$)</label><input type="text" id="detMonthlyCap" placeholder="Quanto pode reservar" class="form-control money-input"></div>
           </div>
-          <div class="form-group">
-            <label for="detNetIncome">Renda Líquida Familiar Mensal (R$)</label>
-            <input type="text" id="detNetIncome" placeholder="8.000,00" class="form-control money-input">
-          </div>
+          <div class="form-group"><label for="detNetIncome">Renda líquida familiar mensal (R$)</label><input type="text" id="detNetIncome" placeholder="8.000,00" class="form-control money-input"></div>
           <div class="form-row">
-            <div class="form-group">
-              <label for="detFixedExp">Despesas Fixas de Vida (R$)</label>
-              <input type="text" id="detFixedExp" placeholder="3.000,00" class="form-control money-input">
-            </div>
-            <div class="form-group">
-              <label for="detVarExp">Despesas Variáveis (R$)</label>
-              <input type="text" id="detVarExp" placeholder="1.000,00" class="form-control money-input">
-            </div>
+            <div class="form-group"><label for="detFixedExp">Despesas fixas (R$)</label><input type="text" id="detFixedExp" placeholder="3.000,00" class="form-control money-input"></div>
+            <div class="form-group"><label for="detVarExp">Despesas variáveis (R$)</label><input type="text" id="detVarExp" placeholder="1.000,00" class="form-control money-input"></div>
           </div>
         </div>
-
         <div class="card form-card">
-          <h3>Compromissos do Imóvel e Reservas</h3>
+          <h3>Compromissos do imóvel e reservas</h3>
           <div class="form-row">
-            <div class="form-group">
-              <label for="detPropInst">Parcela Atual do Apê (R$)</label>
-              <input type="text" id="detPropInst" placeholder="1.500,00" class="form-control money-input">
-            </div>
-            <div class="form-group">
-              <label for="detOtherDebts">Outras Dívidas/Financiamentos (R$)</label>
-              <input type="text" id="detOtherDebts" placeholder="0,00" class="form-control money-input">
-            </div>
+            <div class="form-group"><label for="detPropInst">Parcela atual do apartamento (R$)</label><input type="text" id="detPropInst" placeholder="1.500,00" class="form-control money-input"></div>
+            <div class="form-group"><label for="detOtherDebts">Outras dívidas/financiamentos (R$)</label><input type="text" id="detOtherDebts" placeholder="0,00" class="form-control money-input"></div>
           </div>
           <div class="form-row">
-            <div class="form-group">
-              <label for="detEmergRes">Reserva de Emergência Protegida (R$)</label>
-              <input type="text" id="detEmergRes" placeholder="10.000,00" class="form-control money-input">
-              <small class="help-text">Indisponível para compras da mobília.</small>
-            </div>
-            <div class="form-group">
-              <label for="detSafetyMarg">Margem de Segurança Mensal (R$)</label>
-              <input type="text" id="detSafetyMarg" placeholder="500,00" class="form-control money-input">
-            </div>
+            <div class="form-group"><label for="detEmergRes">Reserva de emergência protegida (R$)</label><input type="text" id="detEmergRes" placeholder="10.000,00" class="form-control money-input"><small class="help-text">Indisponível para compras da mobília.</small></div>
+            <div class="form-group"><label for="detSafetyMarg">Margem de segurança mensal (R$)</label><input type="text" id="detSafetyMarg" placeholder="500,00" class="form-control money-input"></div>
           </div>
-          <div class="form-group">
-            <label for="detPostMoveExpenses">Despesas mensais adicionais após as chaves (R$)</label>
-            <input type="text" id="detPostMoveExpenses" placeholder="Informe o valor ou 0 se não se aplica" class="form-control money-input">
-            <small class="help-text">Ex.: condomínio e IPTU que ainda não estão incluídos nas despesas acima.</small>
-          </div>
+          <div class="form-group"><label for="detPostMoveExpenses">Despesas mensais adicionais após as chaves (R$)</label><input type="text" id="detPostMoveExpenses" placeholder="Informe o valor ou 0 se não se aplica" class="form-control money-input"><small class="help-text">Ex.: condomínio e IPTU que ainda não estão incluídos nas despesas acima.</small></div>
         </div>
-      </div>
-
-      <div class="step-footer">
-        <button class="btn btn-secondary btn-prev" data-prev="1">⬅ Voltar</button>
-        <button class="btn btn-primary btn-next" data-next="3">Avançar para Itens ➔</button>
-      </div>
-    </section>
-
-    <!-- ETAPA 3: AMBIENTES, ITENS E PREFERÊNCIAS -->
-    <section id="step3" class="wizard-section">
-      <div class="section-header-actions">
-        <div>
-          <h2>Etapa 3: Lista de Ambientes e Itens</h2>
-          <p>Cadastre os móveis, eletrodomésticos e serviços. Escolha o escopo e a estratégia para cada um.</p>
-        </div>
-        <button id="btnAddItemModal" class="btn btn-success">+ Adicionar Item</button>
-      </div>
-
-      <!-- ABAS DE AMBIENTES -->
-      <div class="room-tabs-bar" id="roomTabsBar">
-        <!-- Gerado dinamicamente via JS -->
-      </div>
-
-      <!-- PAINEL DE AMBIENTE ATIVO E LISTA DE ITENS -->
-      <div class="card items-container-card">
-        <div class="items-table-wrapper">
-          <table class="items-table" id="itemsTable">
-            <thead>
-              <tr>
-                <th>Item / Especificação</th>
-                <th>Estratégia</th>
-                <th>Prioridade</th>
-                <th>Escopo</th>
-                <th>Situação</th>
-                <th>Custo Total (R$)</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody id="itemsTableBody">
-              <!-- Gerado via JS -->
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="step-footer">
-        <button class="btn btn-secondary btn-prev" data-prev="2">⬅ Voltar</button>
-        <button class="btn btn-primary btn-next" data-next="4">Avançar para Revisão ➔</button>
-      </div>
-    </section>
-
-    <!-- ETAPA 4: REVISAR E PREMISSAS -->
-    <section id="step4" class="wizard-section">
-      <div class="section-header">
-        <h2>Etapa 4: Revisar Premissas e Qualidade dos Dados</h2>
-        <p>Verifique o grau de certeza das informações antes de gerar o plano consolidado.</p>
       </div>
 
       <div class="form-grid">
@@ -337,7 +403,7 @@
 
       <div class="step-footer">
         <button class="btn btn-secondary btn-prev" data-prev="3">⬅ Voltar</button>
-        <button class="btn btn-primary btn-next btn-highlight" data-next="5">📊 Gerar Meu Plano de Mudança</button>
+        <button class="btn btn-primary btn-next btn-highlight" data-next="5">📊 Gerar Meu Plano Financeiro</button>
       </div>
     </section>
 

@@ -11,6 +11,8 @@ import { planDeliveryShift, settlementState } from '../models/payments.js';
 import { buildAnalysisSummary, XLSX_LIMITATION, PDF_LIMITATION } from '../export/AnalysisSummary.js';
 import { ExcelExporter } from '../export/ExcelExporter.js';
 import { PdfExporter } from '../export/PdfExporter.js';
+import { NeedsEngine } from '../engine/NeedsEngine.js';
+import { LayoutEngine } from '../engine/LayoutEngine.js';
 
 function projectWithBaseDate() {
   const project = createDefaultProject();
@@ -760,4 +762,100 @@ test('XLSX e PDF incluem as mesmas informações de contingência da tela e iden
   assert.ok(html.includes('Reserva faltante na data-alvo'));
   assert.ok(html.includes(PDF_LIMITATION));
   assert.ok(!html.includes('Sofá <b>'));
+});
+
+test('necessidades residenciais seguem prioridades e criam envelopes dimensionais', () => {
+  const project = createDefaultProject();
+  project.apartment.approxAreaM2 = 39;
+  project.apartment.residentsCount = 2;
+  project.livingProfile.goals.homeOffice = 'high';
+  project.livingProfile.goals.guestRoom = 'low';
+  project.apartment.rooms.find(room => room.id === 'room_quarto_2').geometry = {
+    widthCm: 240,
+    lengthCm: 300,
+    door: { wall: 'south', offsetCm: 0, widthCm: 80, swing: 'inward' },
+    windows: [],
+    obstacles: [{ label: 'Pilar', xCm: 180, yCm: 100, widthCm: 40, lengthCm: 40 }]
+  };
+
+  const needs = NeedsEngine.generateNeeds(project);
+  const needIds = needs.map(need => need.id);
+  assert.ok(needIds.includes('office-desk'));
+  assert.ok(needIds.includes('office-chair'));
+  assert.ok(needIds.includes('living-television'));
+  assert.ok(!needIds.includes('guest-bed'));
+  assert.equal(needs.find(need => need.id === 'living-dining-seats').quantity, 2);
+
+  const slots = LayoutEngine.buildFurnitureSlots(needs);
+  const desk = slots.find(slot => slot.needId === 'office-desk');
+  assert.equal(slots.filter(slot => slot.needId === 'living-dining-seats').length, 2);
+  assert.equal(desk.roomId, 'room_quarto_2');
+  assert.ok(desk.minWidthCm <= desk.idealWidthCm);
+  assert.ok(desk.idealWidthCm <= desk.maxWidthCm);
+  assert.equal(desk.confidence, 'low');
+});
+
+test('layout preliminar respeita porta e obstáculos e sinaliza envelopes sem encaixe', () => {
+  const room = {
+    id: 'room_test',
+    geometry: {
+      widthCm: 240,
+      lengthCm: 300,
+      door: { wall: 'south', offsetCm: 0, widthCm: 80, swing: 'inward' },
+      windows: [],
+      obstacles: [{ label: 'Pilar', xCm: 180, yCm: 100, widthCm: 40, lengthCm: 40 }]
+    }
+  };
+  const slot = {
+    id: 'slot-desk',
+    needId: 'desk',
+    roomId: room.id,
+    name: 'Mesa de trabalho',
+    category: 'desk',
+    minWidthCm: 80,
+    idealWidthCm: 120,
+    maxWidthCm: 160,
+    minDepthCm: 45,
+    idealDepthCm: 60,
+    maxDepthCm: 75,
+    priority: 'important'
+  };
+  const layout = LayoutEngine.generateLayout([room], [slot])[0];
+  assert.equal(layout.placements.length, 1);
+  const placement = layout.placements[0];
+  assert.ok(placement.x + placement.width <= 240);
+  assert.ok(placement.y + placement.length <= 300);
+  assert.ok(!(placement.x < 220 && placement.x + placement.width > 180 &&
+    placement.y < 140 && placement.y + placement.length > 100));
+  assert.ok(!(placement.x < 80 && placement.x + placement.width > 0 &&
+    placement.y + placement.length > 220));
+  assert.match(layout.limitations.join(' '), /circula/);
+
+  const impossible = {
+    ...slot,
+    id: 'slot-too-large',
+    minWidthCm: 250,
+    idealWidthCm: 260,
+    maxWidthCm: 280,
+    minDepthCm: 310,
+    idealDepthCm: 320,
+    maxDepthCm: 340
+  };
+  const blocked = LayoutEngine.generateLayout([room], [impossible])[0];
+  assert.equal(blocked.placements.length, 0);
+  assert.equal(blocked.unplaced.length, 1);
+});
+
+test('projetos antigos recebem perfil residencial e geometria padrão sem perder seus dados', () => {
+  const legacy = createDefaultProject();
+  legacy.apartment.rooms = [
+    { id: 'room_antigo', name: 'Quarto', type: 'bedroom' }
+  ];
+  legacy.apartment.existingFurniture = undefined;
+  delete legacy.livingProfile;
+  const migrated = StorageManager.migrateAndValidateSchema(legacy);
+
+  assert.equal(migrated.apartment.rooms[0].geometry.widthCm, null);
+  assert.equal(migrated.livingProfile.goals.storage, 'medium');
+  assert.deepEqual(migrated.items, []);
 });

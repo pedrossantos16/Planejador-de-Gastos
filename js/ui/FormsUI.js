@@ -24,7 +24,7 @@ export class FormsUI {
   }
 
   initFormChangeListeners() {
-    ['formStep1', 'step2', 'step4'].forEach(id => {
+    ['formStep1', 'step4'].forEach(id => {
       const form = document.getElementById(id);
       if (!form) return;
       ['input', 'change'].forEach(eventName => {
@@ -72,6 +72,8 @@ export class FormsUI {
     const apt = project.apartment || {};
     this.setVal('cityState', apt.cityState || '');
     this.setVal('approxAreaM2', apt.approxAreaM2 ?? '');
+    this.setVal('canStoreEarlyPurchases', apt.canStoreEarlyPurchases || 'unknown');
+    this.setVal('memorialNotes', apt.memorialNotes || '');
     this.setVal('residentsCount', apt.residentsCount ?? '');
     this.setCheck('isHomeOffice', !!apt.isHomeOffice);
     this.setCheck('hasChildren', !!apt.hasChildren);
@@ -134,6 +136,8 @@ export class FormsUI {
     // Etapa 1
     project.apartment.cityState = this.getVal('cityState');
     project.apartment.approxAreaM2 = this.getVal('approxAreaM2') === '' ? null : Number(this.getVal('approxAreaM2'));
+    project.apartment.canStoreEarlyPurchases = this.getVal('canStoreEarlyPurchases') || 'unknown';
+    project.apartment.memorialNotes = this.getVal('memorialNotes');
     project.apartment.residentsCount = this.getVal('residentsCount') === '' ? null : Number.parseInt(this.getVal('residentsCount'), 10);
     project.apartment.isHomeOffice = this.getCheck('isHomeOffice');
     project.apartment.hasChildren = this.getCheck('hasChildren');

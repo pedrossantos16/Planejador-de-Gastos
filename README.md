@@ -32,6 +32,14 @@ Aplicação estática em HTML, CSS e JavaScript ES modules, compatível com publ
 - Cada hipótese do painel de riscos usa a mesma regra de viabilidade do plano; dados insuficientes aparecem como "não avaliável".
 - Prévia PDF abre uma janela de impressão; escolha **Salvar como PDF** no diálogo do navegador. XLSX contém valores calculados, não fórmulas vivas; alterações na planilha não recalculam o site.
 
+## Planejamento residencial — Fase 1
+
+- A entrada começa pelo imóvel e pelas funções desejadas. Prioridades, estilo, até três imagens de referência locais, preferências de compra e móveis existentes são salvos no mesmo backup local do projeto.
+- O planejador sugere necessidades sem presumir produtos ou preços. Cada sugestão pode ser descartada ou adicionada manualmente ao controle financeiro; itens adicionados começam com preço pendente e não são tratados como custo zero.
+- As medidas manuais usam centímetros e aceitam largura, comprimento, uma porta, uma janela e obstáculos por ambiente. Projetos antigos recebem geometria vazia durante a migração, sem alterar itens ou cálculos financeiros.
+- A planta SVG e os envelopes dimensionais são heurísticas preliminares. As dimensões configuradas em `js/models/planningRules.js` são referências do sistema, não normas técnicas; confirme medidas no imóvel e em cada produto. O arranjo ainda não garante circulação completa nem substitui revisão humana.
+- Upload/interpretação de plantas, múltiplos layouts, pesquisa real de produtos e otimização automática de compras pertencem às fases seguintes e ainda não estão implementados. Não há chaves de serviços externos no frontend.
+
 ## Limitações atuais
 
-O fluxo principal de persistência, cálculo mensal, edição preservadora de pagamentos e importação segura está coberto por testes. Comparações com cotações alternativas verificadas, editor completo de pagamentos/cancelamentos, planejamento detalhado de obrigações por período e relatórios executivos/para fornecedores ainda precisam ser implementados antes de tratar a análise como uma recomendação financeira completa.
+O fluxo principal de persistência, cálculo mensal, edição preservadora de pagamentos, importação segura e os módulos iniciais de necessidades/geometria estão cobertos por testes. Comparações com cotações alternativas verificadas, editor completo de pagamentos/cancelamentos, planejamento detalhado de obrigações por período e relatórios executivos/para fornecedores ainda precisam ser implementados antes de tratar a análise como uma recomendação financeira completa.

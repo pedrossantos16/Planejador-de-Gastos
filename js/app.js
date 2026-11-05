@@ -4,6 +4,7 @@ import { ScenarioEngine } from './engine/ScenarioEngine.js';
 import { Recommender } from './engine/Recommender.js';
 import { WizardUI } from './ui/WizardUI.js';
 import { FormsUI } from './ui/FormsUI.js';
+import { SpacePlannerUI } from './ui/SpacePlannerUI.js';
 import { ItemsUI } from './ui/ItemsUI.js';
 import { DashboardUI } from './ui/DashboardUI.js';
 import { SensitivityUI } from './ui/SensitivityUI.js';
@@ -27,6 +28,7 @@ class App {
 
     this.wizardUI = null;
     this.formsUI = null;
+    this.spacePlannerUI = null;
     this.itemsUI = null;
   }
 
@@ -46,6 +48,11 @@ class App {
 
     // 2. Inicializar controladores de UI
     this.formsUI = new FormsUI(() => this.handleDataChange());
+    this.spacePlannerUI = new SpacePlannerUI(
+      this.project,
+      () => this.handleDataChange(),
+      need => this.addSuggestionToBudget(need)
+    );
     this.itemsUI = new ItemsUI(this.project, () => this.handleDataChange());
 
     this.wizardUI = new WizardUI((stepNum) => {
@@ -56,6 +63,7 @@ class App {
 
     // 3. População inicial
     this.formsUI.populateForms(this.project);
+    this.spacePlannerUI.populate(this.project);
     this.itemsUI.setProject(this.project);
 
     // 4. Conectar Eventos da Barra Superior e Exportações
@@ -70,6 +78,7 @@ class App {
 
   handleDataChange() {
     this.formsUI.readForms(this.project);
+    this.spacePlannerUI.readForms(this.project);
     if (this.hasCorruptSavedProject) {
       this.setSaveStatus('Salvamento bloqueado: exporte o original ou inicie um novo planejamento com backup.');
     } else if (this.isDemo) {
@@ -78,7 +87,46 @@ class App {
       const result = StorageManager.saveProject(this.project);
       this.setSaveStatus(result.success ? 'Salvo neste dispositivo' : `Falha ao salvar: ${result.error}`);
     }
+    this.spacePlannerUI.renderPlan();
     this.recalculateAndRender();
+  }
+
+  addSuggestionToBudget(need) {
+    if (this.project.items.some(item => item.needId === need.id)) return;
+    const room = this.project.apartment.rooms.find(entry => entry.id === need.roomId);
+    const keysDate = this.project.apartment.keysDate;
+    const deliveryMonthIndex = keysDate
+      ? monthsBetween(this.project.baseDate, keysDate)
+      : 0;
+    this.project.items.push({
+      id: `item_need_${need.id}`,
+      needId: need.id,
+      quantity: need.quantity || 1,
+      roomId: need.roomId,
+      name: need.name,
+      specification: `Envelope dimensional preliminar; ${need.confidenceReason}`,
+      dimensions: `${need.dimensionRule.idealWidthCm} × ${need.dimensionRule.idealDepthCm} cm (ideal estimado)`,
+      priority: need.priority,
+      scope: 'include',
+      status: 'search',
+      strategy: 'ready_made',
+      basePriceCents: null,
+      priceKnown: false,
+      shippingCents: 0,
+      assemblyCents: 0,
+      installationCents: 0,
+      additionalCostsCents: 0,
+      deliveryMonthIndex: Number.isInteger(deliveryMonthIndex) ? deliveryMonthIndex : 0,
+      payments: [],
+      supplier: '',
+      source: 'Necessidade sugerida pelo planejador residencial',
+      confidenceLevel: 'low',
+      roomName: room?.name || ''
+    });
+    this.itemsUI.setProject(this.project);
+    this.handleDataChange();
+    const advancedItems = document.getElementById('advancedItems');
+    if (advancedItems) advancedItems.open = true;
   }
 
   recalculateAndRender() {
@@ -277,6 +325,7 @@ class App {
     this.project = newProject;
     this.isDemo = demo;
     this.formsUI.populateForms(this.project);
+    this.spacePlannerUI.populate(this.project);
     this.itemsUI.setProject(this.project);
     this.setSaveStatus(this.isDemo
       ? 'Demonstração fictícia — seu planejamento salvo foi preservado.'
@@ -417,6 +466,13 @@ class App {
       return false;
     }
   }
+}
+
+function monthsBetween(startDate, endDate) {
+  const start = /^(\d{4})-(\d{2})-\d{2}$/.exec(startDate || '');
+  const end = /^(\d{4})-(\d{2})-\d{2}$/.exec(endDate || '');
+  if (!start || !end) return null;
+  return Math.max(0, (Number(end[1]) - Number(start[1])) * 12 + Number(end[2]) - Number(start[2]));
 }
 
 // Inicializar a aplicação quando o DOM estiver pronto
