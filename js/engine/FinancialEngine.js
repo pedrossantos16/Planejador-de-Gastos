@@ -271,6 +271,24 @@ export class FinancialEngine {
       .map(item => ({ id: item.id, name: item.name, amountCents: item.basePriceCents }));
     settlementReview.forEach(entry => missingFields.push(`settlement:${entry.id}`));
 
+    // Origem da regra não comprovada: se as interpretações possíveis divergem, a conclusão não é definitiva.
+    let ruleAmbiguity = null;
+    if (contingencyRuleNeedsReview(assumptions) && (assumptions.contingencyPercent ?? 0) > 0 &&
+        !optionsOverride._ruleAlternative) {
+      const alternatives = [CONTINGENCY_RULE.MONTH_ZERO, CONTINGENCY_RULE.FIRST_DISBURSEMENT].map(rule => {
+        const alt = this.calculate(
+          { ...project, assumptions: { ...assumptions, contingencyRule: rule, contingencyRuleConfirmed: true } },
+          { ...optionsOverride, _ruleAlternative: true }
+        );
+        return { rule, firstDeficitMonth: alt.firstDeficitMonth, maxDeficitCents: alt.maxDeficitCents };
+      });
+      const material = alternatives.some(entry =>
+        entry.firstDeficitMonth !== alternatives[0].firstDeficitMonth ||
+        entry.maxDeficitCents !== alternatives[0].maxDeficitCents);
+      ruleAmbiguity = { material, alternatives };
+      if (material) missingFields.push('contingencyRule');
+    }
+
     const postMoveStart = monthsToMove === null ? horizonMonths + 1 : monthsToMove + 1;
     const postMoveLiabilitiesCents = monthlyProjectPayments
       .slice(postMoveStart)
@@ -308,6 +326,7 @@ export class FinancialEngine {
         mode: contingencyMode,
         rule: contingencyRule,
         ruleNeedsReview: contingencyRuleNeedsReview(assumptions),
+        ruleAmbiguity,
         percent: assumptions.contingencyPercent ?? 0,
         protectedCents: contingencyProtectedCents,
         targetDate: contingencyTargetDate || null,

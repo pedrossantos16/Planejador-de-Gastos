@@ -149,9 +149,48 @@ export class StorageManager {
       apartment: {
         ...defaultProject.apartment,
         ...project.apartment,
+        existingFurniture: project.apartment.existingFurniture || '',
+        rooms: Array.isArray(project.apartment.rooms)
+          ? project.apartment.rooms.map(room => {
+            const defaultRoom = defaultProject.apartment.rooms.find(entry => entry.id === room?.id) || {};
+            return {
+              ...defaultRoom,
+              ...room,
+              geometry: {
+                widthCm: null,
+                lengthCm: null,
+                door: null,
+                windows: [],
+                obstacles: [],
+                ...(defaultRoom.geometry || {}),
+                ...(room?.geometry || {})
+              }
+            };
+          })
+          : project.apartment.rooms ?? defaultProject.apartment.rooms,
         deliveredItems: {
           ...defaultProject.apartment.deliveredItems,
           ...(project.apartment.deliveredItems || {})
+        }
+      },
+      livingProfile: {
+        ...defaultProject.livingProfile,
+        ...(project.livingProfile || {}),
+        goals: {
+          ...defaultProject.livingProfile.goals,
+          ...(project.livingProfile?.goals || {})
+        },
+        style: {
+          ...defaultProject.livingProfile.style,
+          ...(project.livingProfile?.style || {})
+        },
+        purchasing: {
+          ...defaultProject.livingProfile.purchasing,
+          ...(project.livingProfile?.purchasing || {})
+        },
+        needOverrides: {
+          ...defaultProject.livingProfile.needOverrides,
+          ...(project.livingProfile?.needOverrides || {})
         }
       },
       budgetProfile: {
@@ -221,7 +260,19 @@ export class StorageManager {
         throw new Error('Um ambiente possui dados inválidos ou ID duplicado.');
       }
       roomIds.add(room.id);
+      validateRoomGeometry(room);
     }
+    if (typeof project.apartment.existingFurniture !== 'string' ||
+        project.apartment.existingFurniture.length > 2000) {
+      throw new Error('A lista de móveis existentes deve conter até 2.000 caracteres.');
+    }
+    if (!['unknown', 'yes', 'no'].includes(project.apartment.canStoreEarlyPurchases) ||
+        typeof project.apartment.memorialNotes !== 'string' ||
+        project.apartment.memorialNotes.length > 5000) {
+      throw new Error('A informação de armazenamento ou memorial descritivo é inválida.');
+    }
+
+    validateLivingProfile(project.livingProfile);
 
     const itemIds = new Set();
     for (const item of project.items) {
@@ -231,6 +282,7 @@ export class StorageManager {
           itemIds.has(item.id)) {
         throw new Error('Um item possui formato inválido.');
       }
+
       itemIds.add(item.id);
       if (item.roomId && !roomIds.has(item.roomId)) {
         throw new Error(`O ambiente do item "${item.name}" não existe no projeto.`);
@@ -280,6 +332,114 @@ export class StorageManager {
         throw new Error(`Premissa inválida: ${field}.`);
       }
     }
+  }
+}
+
+function validateLivingProfile(profile) {
+  if (!profile || !profile.goals || !profile.style || !profile.purchasing) {
+    throw new Error('O perfil residencial está incompleto.');
+  }
+  const allowedImportance = new Set(['high', 'medium', 'low', 'not_needed']);
+  for (const [goal, value] of Object.entries(profile.goals)) {
+    if (typeof value !== 'string' || !allowedImportance.has(value)) {
+      throw new Error(`Importância inválida para o objetivo "${goal}".`);
+    }
+  }
+  for (const field of ['liked', 'disliked']) {
+    if (!Array.isArray(profile.style[field]) || profile.style[field].length > 20 ||
+        profile.style[field].some(value => typeof value !== 'string' || value.length > 100)) {
+      throw new Error(`Preferências de estilo inválidas: ${field}.`);
+    }
+  }
+  for (const field of ['colors', 'avoidColors', 'references']) {
+    if (typeof profile.style[field] !== 'string' || profile.style[field].length > 1000) {
+      throw new Error(`Preferência estética inválida: ${field}.`);
+    }
+  }
+  const styleChoices = {
+    woodTone: ['no_preference', 'light', 'medium', 'dark'],
+    density: ['clean', 'balanced', 'filled'],
+    furniturePresence: ['no_preference', 'discreet', 'statement'],
+    lines: ['no_preference', 'straight', 'curved', 'mixed'],
+    uniformity: ['low', 'medium', 'high']
+  };
+  for (const [field, values] of Object.entries(styleChoices)) {
+    if (!values.includes(profile.style[field])) {
+      throw new Error(`Preferência estética inválida: ${field}.`);
+    }
+  }
+  if (!Array.isArray(profile.style.referenceImages) || profile.style.referenceImages.length > 3 ||
+      profile.style.referenceImages.some(image => typeof image !== 'string' ||
+        image.length > 550000 || !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(image)) ||
+      profile.style.referenceImages.reduce((total, image) => total + image.length, 0) > 1650000) {
+    throw new Error('As imagens de referência devem ser PNG, JPG ou WebP, até 400 KB cada e 3 arquivos.');
+  }
+  for (const field of ['preferredBrands', 'rejectedBrands']) {
+    if (typeof profile.purchasing[field] !== 'string' || profile.purchasing[field].length > 1000) {
+      throw new Error(`Preferência de compra inválida: ${field}.`);
+    }
+  }
+  const choiceFields = ['used', 'readyMade', 'modular', 'planned', 'durabilityOverPrice'];
+  if (choiceFields.some(field => !['yes', 'no', 'no_preference'].includes(profile.purchasing[field])) ||
+      !['price', 'value', 'durability'].includes(profile.purchasing.objective)) {
+    throw new Error('Uma preferência de compra possui um valor inválido.');
+  }
+  if (!profile.needOverrides || typeof profile.needOverrides !== 'object' ||
+      Array.isArray(profile.needOverrides) ||
+      Object.values(profile.needOverrides).some(value => typeof value !== 'boolean')) {
+    throw new Error('As decisões sobre necessidades sugeridas são inválidas.');
+  }
+}
+
+function validateRoomGeometry(room) {
+  const geometry = room.geometry;
+  if (!geometry || typeof geometry !== 'object' || Array.isArray(geometry)) {
+    throw new Error(`A geometria do ambiente "${room.name}" é inválida.`);
+  }
+  for (const [field, value] of [['largura', geometry.widthCm], ['comprimento', geometry.lengthCm]]) {
+    if (value !== null && value !== undefined &&
+        (!Number.isFinite(value) || value < 100 || value > 3000)) {
+      throw new Error(`${field} do ambiente "${room.name}" deve estar entre 100 e 3.000 cm.`);
+    }
+  }
+  const width = geometry.widthCm;
+  const length = geometry.lengthCm;
+  if (geometry.door) validateOpening(geometry.door, width, length, room.name);
+  if (!Array.isArray(geometry.windows) || geometry.windows.length > 50) {
+    throw new Error(`As janelas do ambiente "${room.name}" devem estar em uma lista válida.`);
+  }
+  geometry.windows.forEach(window => validateOpening(window, width, length, room.name));
+  if (!Array.isArray(geometry.obstacles) || geometry.obstacles.length > 100) {
+    throw new Error(`Os obstáculos do ambiente "${room.name}" devem estar em uma lista válida.`);
+  }
+  geometry.obstacles.forEach(obstacle => {
+    if (!obstacle || typeof obstacle !== 'object') {
+      throw new Error(`Um obstáculo do ambiente "${room.name}" é inválido.`);
+    }
+    const values = [obstacle.xCm, obstacle.yCm, obstacle.widthCm, obstacle.lengthCm];
+    if (values.some(value => !Number.isFinite(value) || value < 0) ||
+        obstacle.widthCm === 0 || obstacle.lengthCm === 0 ||
+        (width && obstacle.xCm + obstacle.widthCm > width) ||
+        (length && obstacle.yCm + obstacle.lengthCm > length)) {
+      throw new Error(`Um obstáculo do ambiente "${room.name}" possui posição ou tamanho inválido.`);
+    }
+    if (typeof obstacle.label !== 'string' || obstacle.label.length > 100) {
+      throw new Error(`O nome de um obstáculo do ambiente "${room.name}" é inválido.`);
+    }
+  });
+}
+
+function validateOpening(opening, width, length, roomName) {
+  if (!opening || typeof opening !== 'object' || Array.isArray(opening)) {
+    throw new Error(`Uma abertura do ambiente "${roomName}" é inválida.`);
+  }
+  const walls = ['north', 'east', 'south', 'west'];
+  const sideLength = ['north', 'south'].includes(opening.wall) ? width : length;
+  if (!walls.includes(opening.wall) || !Number.isFinite(opening.offsetCm) ||
+      !Number.isFinite(opening.widthCm) || opening.offsetCm < 0 || opening.widthCm <= 0 ||
+      (sideLength && opening.offsetCm + opening.widthCm > sideLength) ||
+      (opening.swing !== undefined && !['inward', 'outward', 'none'].includes(opening.swing))) {
+    throw new Error(`Uma abertura do ambiente "${roomName}" possui posição ou largura inválida.`);
   }
 }
 

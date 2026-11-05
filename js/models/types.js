@@ -93,14 +93,17 @@ export function createDefaultProject() {
       cityState: '',
       zipCode: '',
       approxAreaM2: null,
+      canStoreEarlyPurchases: 'unknown',
+      memorialNotes: '',
       rooms: [
-        { id: 'room_cozinha', name: 'Cozinha & Área de Serviço', type: 'kitchen' },
-        { id: 'room_sala', name: 'Sala de Estar / Jantar', type: 'living' },
-        { id: 'room_quarto_principal', name: 'Quarto Casal / Principal', type: 'bedroom' },
-        { id: 'room_quarto_2', name: 'Quarto 2 / Home Office', type: 'bedroom' },
-        { id: 'room_banheiro', name: 'Banheiro Social', type: 'bathroom' },
-        { id: 'room_varanda', name: 'Varanda / Sacada', type: 'balcony' }
+        { id: 'room_cozinha', name: 'Cozinha & Área de Serviço', type: 'kitchen', geometry: createEmptyRoomGeometry() },
+        { id: 'room_sala', name: 'Sala de Estar / Jantar', type: 'living', geometry: createEmptyRoomGeometry() },
+        { id: 'room_quarto_principal', name: 'Quarto Casal / Principal', type: 'bedroom', geometry: createEmptyRoomGeometry() },
+        { id: 'room_quarto_2', name: 'Quarto 2 / Home Office', type: 'bedroom', geometry: createEmptyRoomGeometry() },
+        { id: 'room_banheiro', name: 'Banheiro Social', type: 'bathroom', geometry: createEmptyRoomGeometry() },
+        { id: 'room_varanda', name: 'Varanda / Sacada', type: 'balcony', geometry: createEmptyRoomGeometry() }
       ],
+      existingFurniture: '',
       residentsCount: null,
       isHomeOffice: false,
       hasChildren: false,
@@ -117,6 +120,48 @@ export function createDefaultProject() {
       },
       restrictions: '',
       notes: ''
+    },
+
+    livingProfile: {
+      goals: {
+        storage: 'medium',
+        tvComfort: 'medium',
+        dining: 'medium',
+        hosting: 'medium',
+        homeOffice: 'not_needed',
+        guestRoom: 'low',
+        cooking: 'medium',
+        laundry: 'medium',
+        openCirculation: 'high',
+        decoration: 'low',
+        easyCleaning: 'medium',
+        durability: 'medium',
+        flexibility: 'medium'
+      },
+      style: {
+        liked: [],
+        disliked: [],
+        colors: '',
+        avoidColors: '',
+        woodTone: 'no_preference',
+        density: 'balanced',
+        furniturePresence: 'no_preference',
+        lines: 'no_preference',
+        uniformity: 'medium',
+        references: '',
+        referenceImages: []
+      },
+      purchasing: {
+        used: 'no_preference',
+        readyMade: 'no_preference',
+        modular: 'no_preference',
+        planned: 'no_preference',
+        durabilityOverPrice: 'no_preference',
+        objective: 'value',
+        preferredBrands: '',
+        rejectedBrands: ''
+      },
+      needOverrides: {}
     },
 
     // Orçamento Financeiro
@@ -165,5 +210,15 @@ export function createDefaultProject() {
 
     // Histórico de Compras/Pagamentos Efetivados
     paidHistory: []
+  };
+}
+
+function createEmptyRoomGeometry() {
+  return {
+    widthCm: null,
+    lengthCm: null,
+    door: null,
+    windows: [],
+    obstacles: []
   };
 }

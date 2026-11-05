@@ -42,7 +42,11 @@ export class ScenarioEngine {
       reasons.push(`Análise preliminar: confirme se foi paga a compra de ${result.settlementReview.map(item => item.name).join(', ')}. Se não foi paga, o valor ainda é uma saída futura e muda a projeção.`);
     }
     if (result?.contingency?.ruleNeedsReview) {
-      reasons.push('Este projeto foi salvo sem a versão da regra de contingência e segue a regra anterior; revise e confirme a migração para a regra com data-alvo.');
+      const ambiguity = result.contingency.ruleAmbiguity;
+      const describe = entry => `${entry.rule === 'month_zero' ? 'reserva desde o mês 0' : 'reserva desde o primeiro desembolso'}: ${entry.firstDeficitMonth === null ? 'sem déficit' : `déficit a partir do mês ${entry.firstDeficitMonth}`}`;
+      reasons.push(ambiguity?.material
+        ? `Conclusão provisória: este projeto foi salvo sem a versão da regra de contingência e não é possível comprovar qual regra valia. O resultado depende dela (${ambiguity.alternatives.map(describe).join('; ')}). Confirme a regra ou adote a regra com data-alvo.`
+        : 'A regra de contingência de origem não pôde ser comprovada, mas as interpretações possíveis levam ao mesmo resultado. Revise e confirme a regra com data-alvo.');
     }
     if (result?.hasFamilyBudgetDeficit) {
       reasons.push('As obrigações informadas excedem a renda mensal em pelo menos um mês.');
@@ -111,6 +115,9 @@ export class ScenarioEngine {
       'apartment.moveDate': 'Data desejada para a mudança',
       'assumptions.contingencyTargetDate': 'Data-alvo para ter a contingência formada'
     };
+    if (field === 'contingencyRule') {
+      return 'Confirmar qual regra de contingência valia para este projeto (ou adotar a regra com data-alvo)';
+    }
     if (field.startsWith('settlement:')) {
       const itemId = field.slice('settlement:'.length);
       const item = project?.items?.find(entry => entry.id === itemId);
