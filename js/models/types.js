@@ -34,6 +34,7 @@ export const FIRM_STATUSES = ['contracted', 'paid_partial', 'bought', 'delivered
 export const SETTLED_STATUSES = ['bought', 'delivered', 'installed'];
 
 export const STRATEGY_OPTIONS = {
+  AUTO: 'auto',
   FACTORY_PLANNED: 'factory_planned', // Planejados de fábrica / loja
   CUSTOM_WOODWORK: 'custom_woodwork', // Marcenaria sob medida
   MODULAR: 'modular',                 // Móveis modulados
@@ -43,6 +44,7 @@ export const STRATEGY_OPTIONS = {
 };
 
 export const STRATEGY_LABELS = {
+  auto: 'A definir após comparar alternativas',
   factory_planned: 'Planejados de fábrica',
   custom_woodwork: 'Marcenaria sob medida',
   modular: 'Móveis modulados',
@@ -104,6 +106,7 @@ export function createDefaultProject() {
         { id: 'room_varanda', name: 'Varanda / Sacada', type: 'balcony', geometry: createEmptyRoomGeometry() }
       ],
       existingFurniture: '',
+      existingAssets: [],
       residentsCount: null,
       isHomeOffice: false,
       hasChildren: false,
@@ -161,7 +164,8 @@ export function createDefaultProject() {
         preferredBrands: '',
         rejectedBrands: ''
       },
-      needOverrides: {}
+      needOverrides: {},
+      needCriticalityOverrides: {}
     },
 
     // Orçamento Financeiro
@@ -218,7 +222,10 @@ function createEmptyRoomGeometry() {
     widthCm: null,
     lengthCm: null,
     door: null,
+    doors: [],
     windows: [],
-    obstacles: []
+    obstacles: [],
+    fixedElements: [],
+    utilityPoints: []
   };
 }

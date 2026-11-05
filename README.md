@@ -34,11 +34,14 @@ Aplicação estática em HTML, CSS e JavaScript ES modules, compatível com publ
 
 ## Planejamento residencial — Fase 1
 
-- A entrada começa pelo imóvel e pelas funções desejadas. Prioridades, estilo, até três imagens de referência locais, preferências de compra e móveis existentes são salvos no mesmo backup local do projeto.
+- A entrada começa pelo imóvel e pelas funções desejadas. `goalImportance` registra a importância declarada pelo usuário; `needCriticality` é uma derivação explícita, revisável e separada da prioridade financeira. Estilo, até três imagens locais e preferências também são salvos no projeto.
 - O planejador sugere necessidades sem presumir produtos ou preços. Cada sugestão pode ser descartada ou adicionada manualmente ao controle financeiro; itens adicionados começam com preço pendente e não são tratados como custo zero.
-- As medidas manuais usam centímetros e aceitam largura, comprimento, uma porta, uma janela e obstáculos por ambiente. Projetos antigos recebem geometria vazia durante a migração, sem alterar itens ou cálculos financeiros.
-- A planta SVG e os envelopes dimensionais são heurísticas preliminares. As dimensões configuradas em `js/models/planningRules.js` são referências do sistema, não normas técnicas; confirme medidas no imóvel e em cada produto. O arranjo ainda não garante circulação completa nem substitui revisão humana.
-- Upload/interpretação de plantas, múltiplos layouts, pesquisa real de produtos e otimização automática de compras pertencem às fases seguintes e ainda não estão implementados. Não há chaves de serviços externos no frontend.
+- Sugestões não escolhem estratégia de compra: entram como `auto` com `strategyStatus: pending_research`. Estratégias anteriores, como `ready_made`, continuam válidas.
+- O texto de móveis existentes gera candidatos estruturados, mas só um candidato confirmado e marcado para reaproveitamento pode suprimir uma necessidade de categoria compatível. Correspondência genérica de palavras não descarta móveis.
+- As medidas manuais usam centímetros e aceitam múltiplas portas e janelas, elementos fixos, bancadas, pilares, shafts, equipamentos, zonas de circulação e pontos hidráulicos, elétricos e de gás. Projetos antigos preservam portas, janelas e obstáculos durante a migração.
+- A planta considera zonas de uso, acesso lateral desejável para camas, aberturas, alturas configuradas para janelas e grupos funcionais (refeições, trabalho, dormitório e TV). Conflitos entre home office e hóspedes podem apresentar até três alternativas e seus trade-offs. A ausência de colisão não basta: layout incompleto ou corredor bloqueado é sinalizado.
+- `catalogEnvelope` descreve faixas típicas; cada posicionamento gera um `layoutEnvelope` contextual. Uma futura busca de produtos deverá usar o envelope do layout, não apenas a faixa típica.
+- Todas as dimensões e folgas são heurísticas com fonte/tipo/confiança baixa, não normas técnicas. Confirme medidas no imóvel e no produto. Interpretação automática de plantas, pesquisa real de produtos, integração externa e otimização financeira automática não foram iniciadas.
 
 ## Limitações atuais
 

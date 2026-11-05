@@ -162,14 +162,17 @@
       </div>
         <div class="card">
           <h3>O que importa no dia a dia?</h3>
-          <p class="help-text">Use Alta, Média, Baixa ou “Não preciso disso”.</p>
+          <p class="help-text">Informe a importância de cada função para sua vida. Isso não define a prioridade financeira de um móvel.</p>
           <div id="goalPriorityGrid" class="goal-priority-grid"></div>
         </div>
         <div class="card form-card">
           <h3>Móveis e equipamentos que já existem</h3>
           <label for="existingFurniture">Liste os itens que pretende levar, separados por vírgula</label>
-          <textarea id="existingFurniture" class="form-control" rows="3" placeholder="Ex.: cama, geladeira, mesa de jantar"></textarea>
-          <small class="help-text">Eles serão considerados para evitar sugestões duplicadas. Você poderá revisar a lista depois.</small>
+          <textarea id="existingFurniture" class="form-control" rows="3" placeholder="Ex.: guarda-roupa do quarto, armário de banheiro, armário de cozinha"></textarea>
+          <small class="help-text">O texto só cria candidatos. Uma necessidade só poderá ser suprimida após confirmar a categoria e marcar o móvel para reaproveitamento.</small>
+          <button type="button" class="btn btn-sm btn-outline" data-planner-action="create-asset-candidates">Identificar candidatos</button>
+          <p id="existingAssetStatus" class="help-text" aria-live="polite"></p>
+          <div id="existingAssetsList" class="existing-assets-list"></div>
         </div>
       <div class="step-footer">
         <button class="btn btn-secondary btn-prev" data-prev="1">⬅ Voltar</button>
@@ -264,7 +267,7 @@
 
       <div class="card">
       <h3>Meu espaço</h3>
-      <p class="help-text">Medidas em centímetros. Portas, janelas e obstáculos são opcionais, mas ajudam a evitar sugestões incompatíveis. A planta é esquemática e precisa ser conferida.</p>
+      <p class="help-text">Medidas em centímetros. Registre aberturas, elementos fixos, pontos técnicos e circulação. Restrições heurísticas não são normas e precisam ser conferidas.</p>
       <div id="roomGeometryList" class="room-geometry-list"></div>
       </div>
 
@@ -280,6 +283,7 @@
         <div><h3>Planta 2D preliminar</h3><p class="help-text">O desenho posiciona envelopes dimensionais sem selecionar produtos ou declarar uma solução ótima.</p></div>
         <label for="layoutRoomSelect">Ambiente<select id="layoutRoomSelect" class="form-control"></select></label>
       </div>
+      <div id="layoutAlternatives" class="layout-alternatives"></div>
       <div class="layout-preview"><svg id="layoutSvg" role="img" aria-label="Planta 2D preliminar"></svg></div>
       <p id="layoutStatus" class="help-text" aria-live="polite"></p>
       </div>
@@ -534,6 +538,7 @@
           <div class="form-group">
             <label for="modalItemStrategy">Estratégia</label>
             <select id="modalItemStrategy" class="form-control">
+              <option value="auto">A definir após comparar alternativas</option>
               <option value="custom_woodwork">Marcenaria Sob Medida</option>
               <option value="factory_planned">Planejados de Fábrica</option>
               <option value="modular">Móveis Modulados</option>
@@ -541,6 +546,7 @@
               <option value="hybrid">Solução Híbrida</option>
               <option value="reused">Reaproveitamento</option>
             </select>
+            <small id="modalItemStrategyNote" class="help-text"></small>
           </div>
         </div>
 

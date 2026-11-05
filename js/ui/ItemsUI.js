@@ -207,7 +207,16 @@ export class ItemsUI {
         document.getElementById('modalItemSpec').value = item.specification || '';
         document.getElementById('modalItemPriority').value = item.priority;
         document.getElementById('modalItemScope').value = item.scope;
-        document.getElementById('modalItemStrategy').value = item.strategy;
+        const strategySelect = document.getElementById('modalItemStrategy');
+        strategySelect.value = item.strategy || 'auto';
+        strategySelect.disabled = item.needId && item.strategy === 'auto' &&
+          item.strategyStatus === 'pending_research';
+        const strategyNote = document.getElementById('modalItemStrategyNote');
+        if (strategyNote) {
+          strategyNote.textContent = strategySelect.disabled
+            ? 'A estratégia permanece pendente até haver comparação real de alternativas.'
+            : '';
+        }
         document.getElementById('modalItemBasePrice').value = formatOptionalMoney(item.basePriceCents);
         document.getElementById('modalItemShipping').value = formatOptionalMoney(item.shippingCents);
         document.getElementById('modalItemInstallation').value = formatOptionalMoney((item.installationCents || 0) + (item.assemblyCents || 0));
@@ -223,6 +232,9 @@ export class ItemsUI {
       document.getElementById('modalItemPriority').value = 'essential';
       document.getElementById('modalItemScope').value = 'include';
       document.getElementById('modalItemStrategy').value = 'custom_woodwork';
+      document.getElementById('modalItemStrategy').disabled = false;
+      const strategyNote = document.getElementById('modalItemStrategyNote');
+      if (strategyNote) strategyNote.textContent = '';
       document.getElementById('modalItemBasePrice').value = '';
       document.getElementById('modalItemShipping').value = '0,00';
       document.getElementById('modalItemInstallation').value = '0,00';
@@ -377,6 +389,11 @@ export function mergeItemEdit(existing, updates, assumptions, options = {}) {
     additionalCostsCents: existing?.additionalCostsCents || 0,
     confidenceLevel: existing?.confidenceLevel ?? 'preliminary'
   };
+  if (updates.strategy === 'auto') {
+    itemData.strategyStatus = 'pending_research';
+  } else if (existing && existing.strategy !== updates.strategy) {
+    itemData.strategyStatus = 'selected';
+  }
   delete itemData.installationTotalCents;
 
   if (existing && options.shiftLinkedPayments) {

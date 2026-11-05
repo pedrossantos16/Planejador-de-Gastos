@@ -1,21 +1,12 @@
-import { DIMENSION_RULES, GOAL_IMPORTANCE, RULE_BASIS } from '../models/planningRules.js';
+import {
+  ASSET_CATEGORIES, DIMENSION_RULES, GOAL_IMPORTANCE,
+  NEED_CRITICALITY_RULES, RULE_BASIS, SPATIAL_RELATIONS
+} from '../models/planningRules.js';
 
-const OWNERSHIP_TERMS = {
-  singleBed: ['cama', 'colchao'],
-  doubleBed: ['cama', 'colchao'],
-  wardrobe: ['guarda roupa', 'armario', 'closet'],
-  sofa: ['sofa', 'poltrona'],
-  diningTable: ['mesa de jantar', 'mesa de refeicao', 'mesa para refeicao'],
-  desk: ['mesa de trabalho', 'escrivaninha', 'mesa de escritorio'],
-  chair: ['cadeira'],
-  refrigerator: ['geladeira', 'refrigerador'],
-  cooktop: ['fogao', 'cooktop'],
-  kitchenStorage: ['armario', 'gabinete', 'despensa'],
-  kitchenCounter: ['bancada', 'bancada de cozinha'],
-  washer: ['maquina de lavar', 'lavadora'],
-  mediaConsole: ['rack', 'painel', 'suporte de tv'],
-  television: ['televisao', 'tv'],
-  guestBed: ['cama', 'sofa cama', 'colchao']
+const CRITICALITY_TO_PRIORITY = {
+  required_for_move: 'essential',
+  important_after_move: 'important',
+  deferrable: 'optional'
 };
 
 function normalize(value) {
@@ -31,14 +22,55 @@ function goalScore(profile, goalId) {
   return GOAL_IMPORTANCE[value]?.score || 0;
 }
 
-function goalPriority(profile, goalId, fallback = 'optional') {
-  const value = profile?.goals?.[goalId];
-  return GOAL_IMPORTANCE[value]?.itemPriority || fallback;
+function assetCoversNeed(asset, need) {
+  return asset.confirmed === true && asset.mustReuse === true &&
+    asset.category === need.assetCategory &&
+    (!asset.roomId || asset.roomId === need.roomId);
 }
 
-function alreadyOwns(category, text) {
-  const haystack = normalize(text);
-  return (OWNERSHIP_TERMS[category] || []).some(term => haystack.includes(normalize(term)));
+function categoryFromText(text) {
+  const value = normalize(text);
+  if (/\barmario(?: de| do| da)? banheiro\b|\bgabinete(?: de| do| da)? banheiro\b/.test(value)) return 'bathroomCabinet';
+  if (/\barmario(?: de| do| da)? cozinha\b|\bgabinete(?: de| do| da)? cozinha\b/.test(value)) return 'kitchenStorage';
+  if (/\bguarda[\s-]?roupa\b|\bcloset\b/.test(value)) return 'wardrobe';
+  if (/\bsofa[\s-]?cama\b|\bcama de hospedes\b/.test(value)) return 'guestBed';
+  if (/\bmesa de jantar\b|\bmesa de refeicao\b|\bmesa para refeicao\b/.test(value)) return 'diningTable';
+  if (/\bmesa de trabalho\b|\bescrivaninha\b|\bmesa de escritorio\b/.test(value)) return 'desk';
+  if (/\bmaquina de lavar\b|\blavadora\b/.test(value)) return 'washer';
+  if (/\bgeladeira\b|\brefrigerador\b/.test(value)) return 'refrigerator';
+  if (/\bfogao\b|\bcooktop\b/.test(value)) return 'cooktop';
+  if (/\bcama\b|\bcolchao\b/.test(value)) return 'bed';
+  if (/\bsofa\b|\bpoltrona\b/.test(value)) return 'sofa';
+  if (/\bcadeira\b/.test(value)) return 'chair';
+  if (/\bbancada\b/.test(value)) return 'kitchenCounter';
+  if (/\brack\b|\bpainel de tv\b|\bsuporte de tv\b/.test(value)) return 'mediaConsole';
+  if (/\btelevisao\b|\btv\b/.test(value)) return 'television';
+  return null;
+}
+
+export function buildExistingAssetCandidates(text) {
+  return String(text || '').split(/[,;\n]+/).map(entry => entry.trim())
+    .filter(Boolean)
+    .flatMap((name, index) => {
+      const category = categoryFromText(name);
+      if (!category || !ASSET_CATEGORIES[category]) return [];
+      const id = globalThis.crypto?.randomUUID
+        ? `asset-${globalThis.crypto.randomUUID()}`
+        : `asset-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`;
+      return [{
+        id,
+        category,
+        name: name.slice(0, 100),
+        roomId: null,
+        widthCm: null,
+        depthCm: null,
+        heightCm: null,
+        dimensionsKnown: false,
+        mustReuse: false,
+        confirmed: false,
+        notes: ''
+      }];
+    });
 }
 
 export class NeedsEngine {
@@ -55,40 +87,57 @@ export class NeedsEngine {
       roomOfType(rooms, 'balcony');
     const needs = [];
     const residents = Math.max(1, Number(apartment.residentsCount) || 1);
-    const ownedText = [
-      apartment.existingFurniture,
-      ...(project.items || [])
-        .filter(item => item.scope === 'already_owned' || item.status === 'installed' || item.status === 'delivered')
-        .map(item => item.name)
-    ].join(' ');
+    const assets = apartment.existingAssets || [];
 
-    const add = ({ id, name, category, room, goalId, priority, reason, quantity = 1 }) => {
-      if (!room || alreadyOwns(category, ownedText)) return;
-      const dimensionRule = DIMENSION_RULES[category];
-      needs.push({
+    const add = ({
+      id, name, category, assetCategory = category, room, goalId,
+      reason, quantity = 1, groupId = null, spatialRole = null, spatialRelation = null
+    }) => {
+      if (!room) return;
+      const need = {
         id,
         name,
         category,
+        assetCategory,
         roomId: room.id,
         quantity,
-        priority: priority || goalPriority(profile, goalId),
         goalId,
+        goalImportance: goalId ? profile.goals?.[goalId] || 'not_needed' : 'not_needed',
+        needCriticality: profile.needCriticalityOverrides?.[id] ||
+          NEED_CRITICALITY_RULES[category] || 'deferrable',
+        groupId,
+        furnitureGroup: groupId ? {
+          id: groupId,
+          relation: SPATIAL_RELATIONS[groupId].relation
+        } : null,
+        spatialRole,
+        spatialRelation,
         reason,
         dimensionRuleId: category,
-        dimensionRule,
+        dimensionRule: DIMENSION_RULES[category],
         styleProfile: profile.style || {},
         confidence: 'low',
         confidenceReason: RULE_BASIS
-      });
+      };
+      need.priority = CRITICALITY_TO_PRIORITY[need.needCriticality];
+      const alreadyMappedOwnedItem = (project.items || []).some(item =>
+        item.needId === need.id && (item.scope === 'already_owned' ||
+          item.status === 'installed' || item.status === 'delivered'));
+      if (!alreadyMappedOwnedItem && !assets.some(asset => assetCoversNeed(asset, need))) {
+        needs.push(need);
+      }
     };
 
     if (primaryBedroom) {
+      const bedCategory = residents > 1 ? 'doubleBed' : 'singleBed';
       add({
         id: 'sleeping-bed',
-        name: residents > 1 ? 'Cama para o quarto principal' : 'Cama para o quarto principal',
-        category: residents > 1 ? 'doubleBed' : 'singleBed',
+        name: 'Cama para o quarto principal',
+        category: bedCategory,
+        assetCategory: 'bed',
         room: primaryBedroom,
-        priority: 'essential',
+        groupId: 'BedroomGroup',
+        spatialRole: 'bed',
         reason: 'Item básico para dormir; confirme o número de pessoas e o tamanho disponível.'
       });
       if (goalScore(profile, 'storage') > 0) {
@@ -98,6 +147,9 @@ export class NeedsEngine {
           category: 'wardrobe',
           room: primaryBedroom,
           goalId: 'storage',
+          groupId: 'BedroomGroup',
+          spatialRole: 'wardrobe',
+          spatialRelation: { type: 'near', targetNeedId: 'sleeping-bed' },
           reason: 'Sugestão ligada à importância de armazenamento que você informou.'
         });
       }
@@ -111,6 +163,11 @@ export class NeedsEngine {
           category: 'sofa',
           room: livingRoom,
           goalId: goalScore(profile, 'tvComfort') >= goalScore(profile, 'hosting') ? 'tvComfort' : 'hosting',
+          groupId: goalScore(profile, 'tvComfort') > 0 ? 'TVGroup' : null,
+          spatialRole: 'sofa',
+          spatialRelation: goalScore(profile, 'tvComfort') > 0
+            ? { type: 'faces', targetNeedId: 'living-television' }
+            : null,
           reason: 'Dimensionado como envelope de sofá compacto; a escolha do modelo fica para depois.'
         });
       }
@@ -121,16 +178,22 @@ export class NeedsEngine {
           category: 'diningTable',
           room: livingRoom,
           goalId: 'dining',
+          groupId: 'DiningGroup',
+          spatialRole: 'table',
           reason: 'Prevê uma superfície de refeições; quantidade de assentos pode ser ajustada.'
         });
         add({
           id: 'living-dining-seats',
           name: `Assentos para refeições (${residents})`,
           category: 'chair',
+          assetCategory: 'chair',
           room: livingRoom,
           goalId: 'dining',
           quantity: residents,
-          reason: `Sugestão de ${residents} assento(s), ajustável conforme o espaço e o uso da mesa.`
+          groupId: 'DiningGroup',
+          spatialRole: 'dining-seat',
+          spatialRelation: { type: 'around', targetNeedId: 'living-dining-table' },
+          reason: `Sugestão de ${residents} assento(s) posicionados como grupo junto à mesa.`
         });
       }
       if (goalScore(profile, 'tvComfort') > 0) {
@@ -140,7 +203,9 @@ export class NeedsEngine {
           category: 'television',
           room: livingRoom,
           goalId: 'tvComfort',
-          priority: 'optional',
+          groupId: 'TVGroup',
+          spatialRole: 'television',
+          spatialRelation: { type: 'viewed_from', targetNeedId: 'living-sofa' },
           reason: 'Envelope ilustrativo de tela; pode ser fixada na parede e não pressupõe modelo.'
         });
         add({
@@ -149,17 +214,16 @@ export class NeedsEngine {
           category: 'mediaConsole',
           room: livingRoom,
           goalId: 'tvComfort',
-          priority: 'optional',
+          groupId: 'TVGroup',
+          spatialRole: 'media-console',
+          spatialRelation: { type: 'supports', targetNeedId: 'living-television' },
           reason: 'Apoio opcional; a TV também pode ser instalada na parede.'
         });
       }
     }
 
     const secondaryBedroom = bedroomRooms.find(room => room.id !== primaryBedroom?.id) || null;
-    const officeScore = Math.max(
-      goalScore(profile, 'homeOffice'),
-      apartment.isHomeOffice ? 2 : 0
-    );
+    const officeScore = Math.max(goalScore(profile, 'homeOffice'), apartment.isHomeOffice ? 2 : 0);
     const guestScore = goalScore(profile, 'guestRoom');
     if (secondaryBedroom && officeScore > 0) {
       add({
@@ -168,25 +232,33 @@ export class NeedsEngine {
         category: 'desk',
         room: secondaryBedroom,
         goalId: 'homeOffice',
-        reason: 'O segundo quarto foi priorizado como espaço de trabalho conforme suas prioridades.'
+        groupId: 'WorkGroup',
+        spatialRole: 'desk',
+        reason: 'Sugestão de espaço de trabalho; sua importância não determina a prioridade financeira.'
       });
       add({
         id: 'office-chair',
         name: 'Cadeira de trabalho',
         category: 'chair',
+        assetCategory: 'chair',
         room: secondaryBedroom,
         goalId: 'homeOffice',
-        reason: 'Assento para o espaço de trabalho; confirme ergonomia e medidas antes da compra.'
+        groupId: 'WorkGroup',
+        spatialRole: 'work-seat',
+        spatialRelation: { type: 'faces', targetNeedId: 'office-desk' },
+        reason: 'Assento vinculado à mesa de trabalho; confirme ergonomia e medidas antes da compra.'
       });
     }
-    if (secondaryBedroom && guestScore > 0 && guestScore > officeScore) {
+    if (secondaryBedroom && guestScore > 0) {
       add({
         id: 'guest-bed',
         name: 'Cama ou sofá-cama para hóspedes',
         category: 'guestBed',
         room: secondaryBedroom,
         goalId: 'guestRoom',
-        reason: 'O quarto foi priorizado para hóspedes porque essa função recebeu maior importância.'
+        groupId: 'BedroomGroup',
+        spatialRole: 'guest-bed',
+        reason: 'Sugestão para acomodar hóspedes; compare com o uso de escritório antes de decidir.'
       });
     }
 
@@ -197,7 +269,6 @@ export class NeedsEngine {
         category: 'refrigerator',
         room: kitchen,
         goalId: 'cooking',
-        priority: 'essential',
         reason: 'Equipamento associado ao uso diário da cozinha; verifique pontos e folgas do fabricante.'
       });
       add({
@@ -206,7 +277,6 @@ export class NeedsEngine {
         category: 'cooktop',
         room: kitchen,
         goalId: 'cooking',
-        priority: 'essential',
         reason: 'Equipamento para preparo de refeições; confirme instalações compatíveis.'
       });
       if (!apartment.deliveredItems?.countertops) {
@@ -238,7 +308,6 @@ export class NeedsEngine {
         category: 'washer',
         room: laundry,
         goalId: 'laundry',
-        priority: 'important',
         reason: 'Sugestão para a área de serviço; confira pontos hidráulicos e elétricos.'
       });
     }

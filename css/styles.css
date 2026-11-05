@@ -302,14 +302,16 @@ body {
 /* --------------------------------------------------------------------------
    Planejamento residencial: objetivos, geometria e sugestões
    -------------------------------------------------------------------------- */
-.goal-priority-grid, .room-geometry-list, .suggested-needs-list {
+.goal-priority-grid, .room-geometry-list, .suggested-needs-list,
+.existing-assets-list, .layout-alternatives {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 12px;
   margin-top: 14px;
 }
 
-.goal-priority-card, .room-geometry-card, .suggested-need-card {
+.goal-priority-card, .room-geometry-card, .suggested-need-card,
+.existing-asset-card, .layout-alternative-card {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 14px;
@@ -323,7 +325,8 @@ body {
   font-weight: 600;
 }
 
-.room-geometry-card h4, .suggested-need-card h4 {
+.room-geometry-card h4, .suggested-need-card h4,
+.existing-asset-card h4, .layout-alternative-card h4 {
   margin-bottom: 10px;
 }
 
@@ -351,6 +354,35 @@ body {
   gap: 8px;
   margin: 8px 0;
 }
+
+.geometry-entry-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+  align-items: end;
+  gap: 8px;
+  margin: 8px 0;
+  border-bottom: 1px solid var(--border-color);
+  padding: 8px 0;
+}
+
+.geometry-entry-row label, .criticality-review {
+  font-size: 12px;
+}
+
+.existing-asset-card, .layout-alternative-card {
+  display: grid;
+  gap: 8px;
+}
+
+.asset-dimensions, .asset-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.asset-checks .inline-check { margin: 4px 0; }
+.layout-alternative-card.is-selected { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+.criticality-review { display: grid; gap: 4px; min-width: 220px; }
 
 .opening-fields label {
   font-size: 12px;
@@ -480,10 +512,15 @@ body {
 
 .svg-room { fill: #fff; stroke: #334155; stroke-width: 3; }
 .svg-obstacle { fill: #94a3b8; stroke: #475569; stroke-width: 1.5; }
+.svg-circulation { fill: #fca5a5; fill-opacity: .35; stroke: #dc2626; stroke-dasharray: 6 3; stroke-width: 1.5; }
+.svg-use-zone { fill: #fde68a; fill-opacity: .28; stroke: #d97706; stroke-dasharray: 3 3; stroke-width: 1; }
+.svg-desired-use-zone { fill: #bbf7d0; fill-opacity: .2; stroke: #16a34a; stroke-dasharray: 2 4; stroke-width: 1; }
 .svg-door-zone { fill: #fef3c7; fill-opacity: .55; stroke: #d97706; stroke-dasharray: 4 3; stroke-width: 1.5; }
 .svg-door { stroke: #d97706; stroke-width: 5; }
 .svg-window { stroke: #0ea5e9; stroke-width: 6; }
+.svg-utility-point { fill: #7c3aed; stroke: #fff; stroke-width: 2; }
 .svg-furniture { fill: #bfdbfe; fill-opacity: .8; stroke: #2563eb; stroke-width: 2; }
+.svg-furniture.svg-existing-asset { fill: #bbf7d0; stroke: #15803d; }
 .svg-furniture.priority-essential { fill: #fecaca; stroke: #dc2626; }
 .svg-furniture.priority-optional { fill: #e2e8f0; stroke: #64748b; }
 .svg-label { fill: #0f172a; font-size: 13px; pointer-events: none; }

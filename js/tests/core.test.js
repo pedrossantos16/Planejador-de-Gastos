@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createDefaultProject, SCOPE_OPTIONS, PRIORITY_OPTIONS, STATUS_OPTIONS } from '../models/types.js';
+import {
+  createDefaultProject, SCOPE_OPTIONS, PRIORITY_OPTIONS, STATUS_OPTIONS, STRATEGY_OPTIONS
+} from '../models/types.js';
 import { parseMoneyToCents } from '../models/money.js';
 import { FinancialEngine } from '../engine/FinancialEngine.js';
 import { Recommender } from '../engine/Recommender.js';
@@ -11,7 +13,7 @@ import { planDeliveryShift, settlementState } from '../models/payments.js';
 import { buildAnalysisSummary, XLSX_LIMITATION, PDF_LIMITATION } from '../export/AnalysisSummary.js';
 import { ExcelExporter } from '../export/ExcelExporter.js';
 import { PdfExporter } from '../export/PdfExporter.js';
-import { NeedsEngine } from '../engine/NeedsEngine.js';
+import { buildExistingAssetCandidates, NeedsEngine } from '../engine/NeedsEngine.js';
 import { LayoutEngine } from '../engine/LayoutEngine.js';
 
 function projectWithBaseDate() {
@@ -858,4 +860,231 @@ test('projetos antigos recebem perfil residencial e geometria padrão sem perder
   assert.equal(migrated.apartment.rooms[0].geometry.widthCm, null);
   assert.equal(migrated.livingProfile.goals.storage, 'medium');
   assert.deepEqual(migrated.items, []);
+});
+
+test('importância alta não torna automaticamente uma necessidade essencial financeiramente', () => {
+  const project = createDefaultProject();
+  project.livingProfile.goals.homeOffice = 'high';
+  project.livingProfile.goals.guestRoom = 'low';
+  const desk = NeedsEngine.generateNeeds(project).find(need => need.id === 'office-desk');
+
+  assert.equal(desk.goalImportance, 'high');
+  assert.equal(desk.needCriticality, 'important_after_move');
+  assert.equal(desk.priority, PRIORITY_OPTIONS.IMPORTANT);
+
+  project.livingProfile.needCriticalityOverrides['office-desk'] = 'deferrable';
+  const reviewedDesk = NeedsEngine.generateNeeds(project).find(need => need.id === 'office-desk');
+  assert.equal(reviewedDesk.needCriticality, 'deferrable');
+  assert.equal(reviewedDesk.priority, PRIORITY_OPTIONS.OPTIONAL);
+});
+
+test('estratégia de sugestão permanece pendente e projetos antigos preservam a estratégia salva', () => {
+  const project = projectWithBaseDate();
+  project.items = [
+    { id: 'item-auto', name: 'Sofá sugerido', strategy: 'auto', strategyStatus: 'pending_research', payments: [] },
+    { id: 'item-legacy', name: 'Armário antigo', strategy: 'ready_made', payments: [] }
+  ];
+  const migrated = StorageManager.migrateAndValidateSchema(project);
+
+  assert.equal(STRATEGY_OPTIONS.AUTO, 'auto');
+  assert.equal(migrated.items[0].strategy, 'auto');
+  assert.equal(migrated.items[0].strategyStatus, 'pending_research');
+  assert.equal(migrated.items[1].strategy, 'ready_made');
+});
+
+test('armário de banheiro confirmado não suprime guarda-roupa do quarto', () => {
+  const project = createDefaultProject();
+  project.livingProfile.goals.storage = 'high';
+  const [candidate] = buildExistingAssetCandidates('armário de banheiro');
+  project.apartment.existingAssets = [{
+    ...candidate,
+    roomId: 'room_banheiro',
+    confirmed: false,
+    mustReuse: true
+  }];
+
+  assert.ok(NeedsEngine.generateNeeds(project).some(need => need.id === 'bedroom-wardrobe'));
+  project.apartment.existingAssets[0].confirmed = true;
+  assert.ok(NeedsEngine.generateNeeds(project).some(need => need.id === 'bedroom-wardrobe'));
+  assert.equal(candidate.category, 'bathroomCabinet');
+});
+
+test('móvel existente confirmado com medidas conhecidas entra no layout sem gerar compra duplicada', () => {
+  const project = createDefaultProject();
+  const room = project.apartment.rooms.find(entry => entry.type === 'bedroom');
+  room.geometry = {
+    widthCm: 300, lengthCm: 350, door: null, doors: [], windows: [],
+    obstacles: [], fixedElements: [], utilityPoints: []
+  };
+  const [candidate] = buildExistingAssetCandidates('guarda-roupa');
+  project.apartment.existingAssets = [{
+    ...candidate,
+    roomId: room.id,
+    widthCm: 160,
+    depthCm: 60,
+    heightCm: 210,
+    dimensionsKnown: true,
+    confirmed: true,
+    mustReuse: true
+  }];
+  const needs = NeedsEngine.generateNeeds(project);
+  const slots = LayoutEngine.buildFurnitureSlots([], [room], project.apartment.existingAssets);
+  const layout = LayoutEngine.generateLayout([room], slots)[0];
+
+  assert.ok(!needs.some(need => need.id === 'bedroom-wardrobe'));
+  assert.equal(layout.placements.length, 1);
+  assert.equal(layout.placements[0].isExistingAsset, true);
+});
+
+test('janela restringe móvel alto, mas permite móvel baixo compatível com peitoril', () => {
+  const room = {
+    id: 'room_window',
+    geometry: {
+      widthCm: 220,
+      lengthCm: 220,
+      doors: [],
+      windows: [{
+        wall: 'north', offsetCm: 0, widthCm: 220,
+        sillHeightCm: 100, requiresAccess: false
+      }],
+      fixedElements: [],
+      obstacles: []
+    }
+  };
+  const baseSlot = {
+    id: 'slot-window-test', needId: 'window-test', roomId: room.id,
+    name: 'Móvel', minWidthCm: 80, idealWidthCm: 100, maxWidthCm: 120,
+    minDepthCm: 40, idealDepthCm: 50, maxDepthCm: 60, priority: 'important'
+  };
+  const tall = LayoutEngine.generateLayout([room], [{
+    ...baseSlot, category: 'wardrobe', preferredHeightCm: 210
+  }])[0].placements[0];
+  const low = LayoutEngine.generateLayout([room], [{
+    ...baseSlot, id: 'slot-low', category: 'chair', preferredHeightCm: 75
+  }])[0].placements[0];
+
+  assert.ok(tall);
+  assert.ok(tall.y >= 60 || tall.x >= 220);
+  assert.ok(low);
+  assert.equal(low.y, 0);
+});
+
+test('cama mantém acesso lateral desejável sem bloquear o restante do quarto', () => {
+  const room = {
+    id: 'bedroom-access',
+    geometry: {
+      widthCm: 300, lengthCm: 350, doors: [], windows: [],
+      fixedElements: [], obstacles: []
+    }
+  };
+  const slots = [
+    {
+      id: 'bed-access', needId: 'bed', roomId: room.id, category: 'doubleBed',
+      minWidthCm: 140, idealWidthCm: 160, maxWidthCm: 180,
+      minDepthCm: 190, idealDepthCm: 200, maxDepthCm: 210, priority: 'essential'
+    },
+    {
+      id: 'wardrobe-access', needId: 'wardrobe', roomId: room.id, category: 'wardrobe',
+      minWidthCm: 100, idealWidthCm: 120, maxWidthCm: 160,
+      minDepthCm: 50, idealDepthCm: 60, maxDepthCm: 65,
+      priority: 'important', openingMode: 'sliding', preferredHeightCm: 210
+    }
+  ];
+  const layout = LayoutEngine.generateLayout([room], slots)[0];
+  const bed = layout.placements.find(item => item.needId === 'bed');
+  const wardrobe = layout.placements.find(item => item.needId === 'wardrobe');
+
+  assert.equal(layout.valid, true);
+  assert.ok(bed);
+  assert.ok(wardrobe);
+  assert.equal(bed.desiredUseZones.length, 1);
+  assert.equal(bed.desiredUseZones[0].type, 'desired_access');
+  assert.equal(bed.desiredUseZones[0].confidence, 'low');
+  assert.ok(bed.desiredUseZones.every(zone =>
+    zone.x >= wardrobe.x + wardrobe.width ||
+    zone.x + zone.width <= wardrobe.x ||
+    zone.y >= wardrobe.y + wardrobe.length ||
+    zone.y + zone.length <= wardrobe.y));
+});
+
+test('mesa e cadeiras são posicionadas como um grupo de refeições coerente', () => {
+  const project = createDefaultProject();
+  project.apartment.residentsCount = 2;
+  project.livingProfile.goals.dining = 'high';
+  project.livingProfile.goals.tvComfort = 'not_needed';
+  project.livingProfile.goals.hosting = 'not_needed';
+  const living = project.apartment.rooms.find(room => room.type === 'living');
+  living.geometry = {
+    widthCm: 300, lengthCm: 300, door: null, doors: [], windows: [],
+    obstacles: [], fixedElements: [], utilityPoints: []
+  };
+  const needs = NeedsEngine.generateNeeds(project).filter(need => need.roomId === living.id);
+  const diningSlots = LayoutEngine.buildFurnitureSlots(needs).filter(slot => slot.groupId === 'DiningGroup');
+  const layout = LayoutEngine.generateLayout([living], diningSlots)[0];
+  const table = layout.placements.find(item => item.spatialRole === 'table');
+  const chairs = layout.placements.filter(item => item.spatialRole === 'dining-seat');
+
+  assert.ok(needs.find(need => need.id === 'living-dining-seats').spatialRelation);
+  assert.equal(chairs.length, 2);
+  assert.ok(table);
+  assert.ok(chairs.every(chair =>
+    chair.y + chair.length <= table.y || chair.y >= table.y + table.length));
+  assert.ok(chairs.every(chair => chair.groupId === table.groupId));
+});
+
+test('corredor marcado não pode ser bloqueado e invalida o layout sem encaixe', () => {
+  const room = {
+    id: 'room_corridor',
+    geometry: {
+      widthCm: 200, lengthCm: 200, door: null, doors: [], windows: [], obstacles: [],
+      fixedElements: [{
+        type: 'circulation', label: 'Corredor', xCm: 0, yCm: 0,
+        widthCm: 200, lengthCm: 200, blocksPlacement: true
+      }]
+    }
+  };
+  const layout = LayoutEngine.generateLayout([room], [{
+    id: 'slot-corridor', needId: 'desk', roomId: room.id, category: 'desk',
+    minWidthCm: 80, idealWidthCm: 100, maxWidthCm: 120,
+    minDepthCm: 45, idealDepthCm: 60, maxDepthCm: 75, priority: 'important'
+  }])[0];
+
+  assert.equal(layout.valid, false);
+  assert.equal(layout.placements.length, 0);
+  assert.match(layout.unplaced[0].reason, /corredor/i);
+});
+
+test('duas funções concorrentes geram três alternativas explícitas com trade-offs', () => {
+  const project = createDefaultProject();
+  project.livingProfile.goals.homeOffice = 'high';
+  project.livingProfile.goals.guestRoom = 'high';
+  const needs = NeedsEngine.generateNeeds(project);
+  const slots = LayoutEngine.buildFurnitureSlots(needs, project.apartment.rooms);
+  const alternatives = LayoutEngine.generateAlternatives(
+    project.apartment.rooms, slots, project.livingProfile.goals
+  );
+
+  assert.equal(alternatives.length, 3);
+  assert.match(alternatives[0].tradeoff, /remove a cama/i);
+  assert.match(alternatives[1].tradeoff, /sofá-cama compacto/i);
+  assert.match(alternatives[2].tradeoff, /remove a mesa/i);
+});
+
+test('envelope de layout limita envelope típico quando as dimensões do ambiente são menores', () => {
+  const project = createDefaultProject();
+  project.livingProfile.goals.tvComfort = 'not_needed';
+  project.livingProfile.goals.hosting = 'high';
+  const living = project.apartment.rooms.find(room => room.type === 'living');
+  living.geometry = {
+    widthCm: 180, lengthCm: 220, door: null, doors: [], windows: [],
+    obstacles: [], fixedElements: [], utilityPoints: []
+  };
+  const sofaNeed = NeedsEngine.generateNeeds(project).find(need => need.id === 'living-sofa');
+  const slot = LayoutEngine.buildFurnitureSlots([sofaNeed], [living])[0];
+  const layout = LayoutEngine.generateLayout([living], [slot])[0];
+  const sofa = layout.placements.find(placement => placement.needId === 'living-sofa');
+
+  assert.ok(sofa);
+  assert.equal(sofa.catalogEnvelope.maxWidthCm, 205);
+  assert.ok(sofa.layoutEnvelope.maxWidthCm < sofa.catalogEnvelope.maxWidthCm);
 });
